@@ -19,7 +19,16 @@
 /*.Rcheck/
 
 # RStudio files
+
+
+.DS_Store
+.Rhistory
+.RData
 .Rproj.user/
+
+stan_csv/
+stan_output/
+stan_cache/
 
 # produced vignettes
 vignettes/*.html
@@ -47,3 +56,9 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+
+
+*.o
+*.so
+*.dSYM/
