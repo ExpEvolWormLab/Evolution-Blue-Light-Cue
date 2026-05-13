@@ -23,7 +23,7 @@ options(mc.cores = parallel::detectCores())
 
 ```{r constants_growth_fit}
 # --- File paths ---
-growth_data_path <- "../cue_data.csv" 
+growth_data_path <- "cue_data.csv" 
 
 # --- CmdStan sampling defaults ---
 growth_chains <- 6
@@ -111,7 +111,7 @@ d_growth <- d_growth %>%
     pop_unrel_id = if_else(evo_type == 2L, match(population, unrel_levels), 0L)
   )
 
-d_growth %>%
+pop_check<-d_growth %>%
   summarise(
     J_rel = max(pop_rel_id),
     J_unrel = max(pop_unrel_id),
@@ -119,8 +119,13 @@ d_growth %>%
       !any(evo_type != 1L & pop_rel_id != 0L) &
       !any(evo_type != 2L & pop_unrel_id != 0L)
   )
+
+#Stop if we don't have a correspondence between evo treatment and the pop ids.
+stopifnot(pop_check$pop_ok)
 ```
 
+
+A series of sanity checks, if any of these don't check out then our data processing has gone off the rails.
 ```{r growth_04_sanity_checks}
 stopifnot(all(d_growth$Ci %in% c(-1L, 1L)))
 stopifnot(all(d_growth$mat_id %in% 1:4))
@@ -133,6 +138,8 @@ stopifnot(all(d_growth$pop_rel_id >= 0L))
 stopifnot(all(d_growth$pop_unrel_id >= 0L))
 ```
 
+
+Setup the stan data, basically we need a named list with each piece of data that will get passed to stan.
 ```{r growth_05_build_stan_data}
 stan_data_growth <- list(
   N = nrow(d_growth),
@@ -154,11 +161,10 @@ stan_data_growth <- list(
   pop_unrel_id = as.integer(d_growth$pop_unrel_id)
 )
 
-str(stan_data_growth, max.level = 1)
 ```
 
 
-Here is stan code for just the full interaction model. This is new code and has not yet replaced the old code with all the flags and switches. We will set it up to be able to run and compare the total output. 
+Here is stan code for just the full interaction model. 
 ```{r growth_065_fit_full_interaction}
 stan_code_growth_interactionsonly <- "
 
@@ -198,17 +204,18 @@ data {
   // Block identity for each observation
   array[N] int<lower=1, upper=B> block_id;
 
-  // Number of environmental sequences used for evolved treatments
+  // Number of sequences used for evolved treatments
   int<lower=0> K_seq;
 
-  // Sequence identity for each observation
-  // We label the Ancestral rows can with seq_id = 0 because they are not used.
+  // Sequence number for each observation
+  // We label the Ancestral rows with seq_id = 0 because they don't have a sequence, 
+  //and later make sure that we just leave out any sequence effect for them.
   array[N] int<lower=0, upper=K_seq> seq_id;
 
   // Number of reliable replicate populations
   int<lower=0> J_rel;
 
-  // Reliable population number, within reliable numbered form 1 to j
+  // Reliable population number, within reliable numbered form 1 to J_rel
   // all non-reliable rows are labeled with pop_rel_id = 0 because it won't be used
   array[N] int<lower=0, upper=J_rel> pop_rel_id;
 
@@ -488,7 +495,7 @@ stan_data_growth_full_interaction_only <- list(
   pop_unrel_id = as.integer(d_growth$pop_unrel_id)
 )
 
-str(stan_data_growth_full_interaction_only, max.level = 1)
+
 ```
 
 
@@ -522,6 +529,7 @@ saveRDS(
 
 ## Setup code to compare models with/without additive and interaction effects
 
+In this section we create a collection of models that have different types of effects. These can be used for hypothesis testing style comparison among models. Our main approach, however, is to make a single model with all of the biologically realistic effects and then compare parameter estimates (which is an alternative to more traditional hypothesis testing style approaches.)
 ```{r growth_06_write_stan_full_centered}
 stan_code_growth_full_centered <- "
 functions {
@@ -753,6 +761,7 @@ mod_growth_full_centered <- cmdstan_model(stan_file_growth_full_centered)
 ```
 
 
+Create a list of models and run them all.
 ```{r growth_08_fit_switch_grid}
 growth_switch_grid <- list(
   growth_additive_all = list(use_state_anc = 0L, use_state = c(0L, 0L)),
@@ -784,7 +793,7 @@ fit_growth_switch <- rlang::set_names(fit_growth_switch, names(growth_switch_gri
 
 
 
-
+Check to make sure that we have good convergence statistics for all of our models. Then do a LOOIC comparison among models.
 ```{r growth_09_diagnostics_helpers}
 summarize_diag <- function(fit) {
   s <- fit$summary()
@@ -824,6 +833,8 @@ summarize_model_comparison <- function(fit_list) {
 }
 ```
 
+
+Make a summary table of the convergence stats and LOO ranking.
 ```{r growth_10_run_diagnostics}
 growth_diag_table <- purrr::imap_dfr(
   fit_growth_switch,
@@ -842,10 +853,7 @@ growth_switch_table
 
 
 ## Model for the effect of evolutionary sequence
-Added April 9, 2026
-
-
-But actually do it for Unreliable too.
+Here we set up a model that includes additive effects of the evolutionary sequence itself. These are treated as fixed effects (i.e. no adaptive prior on sigmas) and as separate effects for reliable and unreliable, so basically very flexible. 
 
 ```{r growth_06a_write_stan_anc_rel_unrel_by_seq_state_only}
 stan_code_growth_anc_rel_unrel_by_seq_state_only <- "
