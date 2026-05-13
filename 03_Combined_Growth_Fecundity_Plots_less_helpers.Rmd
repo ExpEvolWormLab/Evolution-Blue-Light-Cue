@@ -926,7 +926,7 @@ growth_plot_halfeye_with_summary(
   x = "mat_label",
   y = "cue_effect_diff",
   x_label = axis_label_mat_env_full,
-  y_label = "Light-Plasticity Fitness Divergence",
+  y_label = "Light-Plasticity Fitness Differentiation",
   hline_value = 0,
   single_fill = unname(contrast_color)
 )
@@ -1335,10 +1335,8 @@ growth_plot_halfeye_with_summary(
 
 Difference in cue effect on R0 between Rel and Unrel
 
+
 ```{r growth_plot_rel_vs_unrel_overall_cue_contrast, fig.width=6, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
-
-
-
 
 alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
 alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
@@ -1363,39 +1361,24 @@ log_fit_unrel <- (state_df_unrel_raw[1:8] + state_df_unrel_raw[9:16] + alpha_unr
   as_tibble() %>%
   setNames(1:8)
 
-
-
-
 fit_rel <- exp(log_fit_rel)
 fit_unrel <- exp(log_fit_unrel)
 
-
-
-
-
 cue_effect_rel <- (
   (fit_rel$`2` - fit_rel$`1`) +
-  (fit_rel$`4` - fit_rel$`3`) +
-  (fit_rel$`6` - fit_rel$`5`) +
-  (fit_rel$`8` - fit_rel$`7`)
+    (fit_rel$`4` - fit_rel$`3`) +
+    (fit_rel$`6` - fit_rel$`5`) +
+    (fit_rel$`8` - fit_rel$`7`)
 ) / 4
 
 cue_effect_unrel <- (
   (fit_unrel$`2` - fit_unrel$`1`) +
-  (fit_unrel$`4` - fit_unrel$`3`) +
-  (fit_unrel$`6` - fit_unrel$`5`) +
-  (fit_unrel$`8` - fit_unrel$`7`)
+    (fit_unrel$`4` - fit_unrel$`3`) +
+    (fit_unrel$`6` - fit_unrel$`5`) +
+    (fit_unrel$`8` - fit_unrel$`7`)
 ) / 4
 
-
-
-
-
 diff_fit <- cue_effect_rel - cue_effect_unrel
-
-
-
-
 
 df_draws <- tibble(
   contrast_box = factor(
@@ -1406,9 +1389,6 @@ df_draws <- tibble(
   diff_fit = diff_fit
 )
 
-
-
-
 df_summ <- df_draws %>%
   group_by(contrast_box, x_dummy) %>%
   summarise(
@@ -1417,10 +1397,6 @@ df_summ <- df_draws %>%
     hi = quantile(diff_fit, growth_hi_p),
     .groups = "drop"
   )
-
-
-
-
 
 growth_plot_halfeye_with_summary(
   df_draws = df_draws,
@@ -1435,10 +1411,24 @@ growth_plot_halfeye_with_summary(
 ) +
   facet_wrap(~ contrast_box, nrow = 1) +
   boxed_strip_theme(12) +
+  labs(
+    x = "Experimental Evolution Regime",
+    tag = "Overall \n\n Sup Fig. 7"
+  ) +
   theme(
-    legend.position = "none"
-  )+ labs(x = "Experimental Evolution Regime")
+    legend.position = "none",
+    plot.tag.position = c(0.98, 0.98),
+    plot.tag = element_text(
+      size = 12,
+      face = "bold",
+      hjust = 1,
+      vjust = 1
+    ),
+    plot.margin = margin(t = 8, r = 18, b = 5, l = 5)
+  )
 ```
+
+
 
 Figure out exactly how much of the posterior is above 0. 6.3% is below zero.
 ```{r}
@@ -2189,7 +2179,7 @@ p_growth <- ggplot(df_summ_growth, aes(x = mat, y = med, fill = cue)) +
     values = growth_cue_plot_colors
   ) +
   labs(
-    title = "Fitness",
+    title = NULL,
     x = axis_label_mat_env_full,
     y = axis_label_growth
   ) +
@@ -2249,8 +2239,7 @@ p_fec <- ggplot(df_summ_fec, aes(x = mat, y = med, fill = cue)) +
     name = legend_label_light_cue,
     values = fec_cue_plot_colors
   ) +
-  labs(
-    title = "Fecundity",
+  labs(NULL,
     x = axis_label_mat_env_full,
     y = axis_label_fecundity
   ) +
