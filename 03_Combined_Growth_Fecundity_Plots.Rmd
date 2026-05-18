@@ -597,7 +597,8 @@ growth_plot_halfeye_with_summary(
     legend.position = "right",
     legend.title = element_text(size = 11),
     legend.text = element_text(size = 10)
-  )
+  )+
+  ylim(-2,2)
 ```
 
 
@@ -800,17 +801,11 @@ growth_plot_halfeye_with_summary(
 
 this is the difference of the difference between Rel and Unrel. First calculate the difference in R0 based on cue for Rel, and Unrel. Then do Rel-Unrel of that difference. 
 
-
 ```{r growth_plot_rel_vs_unrel_cue_effect_difference_contrast_boxplot_style, echo=FALSE, message=FALSE, warning=FALSE}
 alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
 alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
 
 # Calculate Reliable R0 for each of the 8 maternal-environment x cue states.
-# This combines:
-#   ancestral state effect
-#   + Reliable deviation from ancestral
-#   + Reliable intercept
-# and then exponentiates to return to the natural scale.
 state_df_rel <- growth_draws_df %>%
   select(starts_with("state_anc["), starts_with("delta_state[1,"))
 
@@ -820,9 +815,7 @@ state_df_rel_sum <- (state_df_rel[1:8] + state_df_rel[9:16] + alpha_rel) %>%
 
 names(state_df_rel_sum) <- as.character(1:8)
 
-# Calculate Unreliable R0 for each of the 8 states.
-# This uses the same ancestral baseline plus the Unreliable deviation
-# and the Unreliable intercept, then exponentiates to the natural scale.
+# Calculate Unreliable R0 for each of the 8 maternal-environment x cue states.
 state_df_unrel <- growth_draws_df %>%
   select(starts_with("state_anc["), starts_with("delta_state[2,"))
 
@@ -832,8 +825,7 @@ state_df_unrel_sum <- (state_df_unrel[1:8] + state_df_unrel[9:16] + alpha_unrel)
 
 names(state_df_unrel_sum) <- as.character(1:8)
 
-# Convert Reliable predictions to long format and attach the state key
-# so each draw is labeled by maternal environment and cue.
+# Convert Reliable predictions to long format.
 draws_rel <- state_df_rel_sum %>%
   mutate(.draw = row_number()) %>%
   pivot_longer(
@@ -844,13 +836,13 @@ draws_rel <- state_df_rel_sum %>%
   mutate(
     state_id = as.integer(state)
   ) %>%
-  left_join(state_key_growth, by = "state_id")%>%
+  left_join(state_key_growth, by = "state_id") %>%
   mutate(
     mat_label = factor(mat_label, levels = plot_mat_levels),
     cue = factor(cue, levels = c("No Light", "Blue Light"))
   )
 
-# Do the same for Unreliable predictions.
+# Convert Unreliable predictions to long format.
 draws_unrel <- state_df_unrel_sum %>%
   mutate(.draw = row_number()) %>%
   pivot_longer(
@@ -861,15 +853,13 @@ draws_unrel <- state_df_unrel_sum %>%
   mutate(
     state_id = as.integer(state)
   ) %>%
-  left_join(state_key_growth, by = "state_id")%>%
+  left_join(state_key_growth, by = "state_id") %>%
   mutate(
     mat_label = factor(mat_label, levels = plot_mat_levels),
     cue = factor(cue, levels = c("No Light", "Blue Light"))
   )
 
-# Within each posterior draw and maternal environment, compute the cue effect
-# for the Reliable population as a difference on the natural scale:
-#   R0 under Blue Light - R0 under No Light
+# Reliable cue effect within each posterior draw and maternal environment.
 cue_effect_rel <- draws_rel %>%
   select(.draw, mat_label, cue, R0_rel) %>%
   pivot_wider(
@@ -881,7 +871,7 @@ cue_effect_rel <- draws_rel %>%
   ) %>%
   select(.draw, mat_label, cue_effect_rel)
 
-# Compute the analogous cue effect for the Unreliable population.
+# Unreliable cue effect within each posterior draw and maternal environment.
 cue_effect_unrel <- draws_unrel %>%
   select(.draw, mat_label, cue, R0_unrel) %>%
   pivot_wider(
@@ -893,23 +883,53 @@ cue_effect_unrel <- draws_unrel %>%
   ) %>%
   select(.draw, mat_label, cue_effect_unrel)
 
-# Join Reliable and Unreliable cue effects and compute the treatment contrast
-# in cue response as a difference of cue effects:
-#   (Reliable cue effect) - (Unreliable cue effect)
-# A value of 0 means the two evolved treatments have the same cue response.
-df_draws <- cue_effect_rel %>%
+# Maternal-environment-specific Reliable - Unreliable cue-effect differences.
+df_draws_mat <- cue_effect_rel %>%
   left_join(
     cue_effect_unrel,
     by = c(".draw", "mat_label")
   ) %>%
   mutate(
-    cue_effect_diff = cue_effect_rel - cue_effect_unrel
+    cue_effect_diff = cue_effect_rel - cue_effect_unrel,
+    plot_label = as.character(mat_label)
   )
 
-# Summarize the posterior distribution within each maternal environment
-# using the median and central posterior interval.
+# Overall average cue-effect difference.
+# This averages the four maternal-environment-specific differences within
+# each posterior draw, so uncertainty is preserved across posterior draws.
+df_draws_overall <- df_draws_mat %>%
+  group_by(.draw) %>%
+  summarise(
+    cue_effect_rel = mean(cue_effect_rel),
+    cue_effect_unrel = mean(cue_effect_unrel),
+    cue_effect_diff = mean(cue_effect_diff),
+    plot_label = "Overall",
+    .groups = "drop"
+  )
+
+# Combine the four maternal-environment distributions with the overall average.
+df_draws <- bind_rows(
+  df_draws_mat,
+  df_draws_overall
+)
+
+# Use numeric x positions so the Overall distribution can be spatially separated.
+plot_x_positions <- c(
+  "AN" = 1,
+  "NN" = 2,
+  "AA" = 3,
+  "NA" = 4,
+  "Overall" = 5.75
+)
+
+df_draws <- df_draws %>%
+  mutate(
+    x_pos = unname(plot_x_positions[plot_label])
+  )
+
+# Summarize each posterior distribution using the median and central interval.
 df_summ <- df_draws %>%
-  group_by(mat_label) %>%
+  group_by(plot_label, x_pos) %>%
   summarise(
     med = median(cue_effect_diff),
     lo = quantile(cue_effect_diff, growth_lo_p),
@@ -917,22 +937,28 @@ df_summ <- df_draws %>%
     .groups = "drop"
   )
 
-# Plot the posterior distributions with median points and interval bars.
-# The horizontal reference line at 0 indicates no difference in cue effect
-# between Reliable and Unreliable populations.
+# Plot the four maternal-environment contrasts plus the overall average.
 growth_plot_halfeye_with_summary(
   df_draws = df_draws,
   df_summ = df_summ,
-  x = "mat_label",
+  x = "x_pos",
   y = "cue_effect_diff",
   x_label = axis_label_mat_env_full,
   y_label = "Light-Plasticity Fitness Differentiation",
   hline_value = 0,
   single_fill = unname(contrast_color)
-)
+) +
+  geom_vline(
+    xintercept = 4.875,
+    linetype = "dotted",
+    linewidth = 0.5
+  ) +
+  scale_x_continuous(
+    breaks = unname(plot_x_positions),
+    labels = names(plot_x_positions),
+    limits = c(0.5, 6.25)
+  )
 ```
-
-
 
 
 Here the contrasts in mean log fitness are calculated on log scale (because it is geo mean of R0). We then plot fixed-reference changes on the R0 scale so they can be seen in terms of number of offspring. We do this by taking exp( Anc  + 1/2 diff in log fit due to evo treat)-exp( Anc  - 1/2 diff in log fit due to evo treat)
