@@ -1,0 +1,2776 @@
+---
+title: "Combined_Growth_and_Fecundity_Plots"
+author: "Stephen R. Proulx"
+date: "2026-03-20"
+output:
+  pdf_document:
+    keep_tex: true
+    latex_engine: xelatex
+---
+
+
+```{r growth_plot_helpers_minimal, include=FALSE}
+library(tidyverse)
+library(posterior)
+library(grid)
+
+draws_growth_state_all <- readRDS("stan_output/growth_full_interaction_only_draws.rds")
+growth_draws_df <- posterior::as_draws_df(draws_growth_state_all)
+
+growth_key_mat_levels <- c("AN", "NN", "AA", "NA")
+growth_cue_plot_levels <- c("No Light", "Blue Light")
+
+
+
+draws_fec_state_all <- readRDS("stan_output/fit_fecundity_additive_draws_df.rds")
+fec_draws_df <- posterior::as_draws_df(draws_fec_state_all)
+
+
+
+growth_cue_plot_colors <- c(
+  "No Light" = "#999999",
+  "Blue Light" = "#0072B2"
+)
+
+fec_cue_plot_colors <- c(
+  "No Light" = "#999999",
+  "Blue Light" = "#0072B2"
+)
+
+
+contrast_color <- "#7A3E9D"
+
+growth_base_plot_theme <- function(base_size = 16) {
+  theme_classic(base_size = base_size) +
+    theme(
+      legend.position = "right",
+      strip.background = element_rect(
+        fill = "white",
+        color = "black",
+        linewidth = 0.8
+      ),
+      strip.text = element_text(
+        face = "bold",
+        size = 12,
+        margin = margin(4, 6, 4, 6)
+      )
+    )
+}
+
+fec_base_plot_theme <- function(base_size = 16) {
+  theme_classic(base_size = base_size) +
+    theme(
+      legend.position = "right",
+      strip.background = element_rect(
+        fill = "white",
+        color = "black",
+        linewidth = 0.8
+      ),
+      strip.text = element_text(
+        face = "bold",
+        size = 12,
+        margin = margin(4, 6, 4, 6)
+      )
+    )
+}
+
+
+hide_x_axis_text_theme <- function() {
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+}
+
+axis_label_growth <- "Fitness"
+
+axis_label_fecundity <- "Fecundity"
+
+axis_label_mat_env_full <- "Oxygen Environment"
+legend_label_light_cue <- "Light Environment"
+
+growth_lo_p <- 0.055
+growth_hi_p <- 0.945
+
+fec_lo_p <- 0.055
+fec_hi_p <- 0.945
+```
+
+
+re-usable features for growth data
+
+
+
+```{r constants , include=FALSE}
+
+mat_key_growth <- tibble::tibble(
+  mat_id = 1:4,
+  mat_label = c("AN", "NN", "AA", "NA")
+)
+
+state_key_growth <- tibble::tibble(
+  state_id = 1:8,
+  mat_id = c(1, 1, 2, 2, 3, 3, 4, 4),
+  mat_label = c("AN", "AN", "NN", "NN", "AA", "AA", "NA", "NA"),
+  cue = c("No Light", "Blue Light", "No Light", "Blue Light",
+          "No Light", "Blue Light", "No Light", "Blue Light")
+) 
+
+# ---- Fecundity keys: match 02_run_Fecundity_additive.R exactly ----
+mat_key_fec <- tibble::tibble(
+  mat_id = 1:4,
+  mat = c("AA", "AN", "NA", "NN")
+)
+
+state_key_fec <- tidyr::expand_grid(
+  mat = c("AA", "AN", "NA", "NN"),
+  cue = c("No Light", "Blue Light")
+) %>%
+  dplyr::mutate(state_id = dplyr::row_number()) %>%
+  dplyr::left_join(mat_key_fec, by = "mat") %>%
+  dplyr::select(state_id, mat_id, mat, cue)
+
+
+plot_mat_levels <- c("AN", "NN", "AA", "NA")
+```
+
+
+plot functions
+
+```{r add_functions , include=FALSE}
+
+
+
+growth_plot_halfeye_with_summary <- function(
+  df_draws,
+  df_summ,
+  x,
+  y,
+  fill = NULL,
+  group = NULL,
+  x_label = NULL,
+  y_label,
+  hline_value = 0,
+  show_legend = FALSE,
+  remove_x_text = FALSE,
+  point_size = 2.3,
+  hline_width = 0.7,
+  dodge_width = NULL,
+  single_fill = contrast_color,
+  fill_values = growth_cue_plot_colors
+) {
+  dodge_position <- if (!is.null(dodge_width)) position_dodge(width = dodge_width) else "identity"
+
+  if (!is.null(fill)) {
+    p <- ggplot() +
+      geom_hline(yintercept = hline_value, linewidth = hline_width) +
+      ggdist::stat_halfeye(
+        data = df_draws,
+        aes(
+          x = .data[[x]],
+          y = .data[[y]],
+          fill = .data[[fill]],
+          group = .data[[group]]
+        ),
+        position = dodge_position,
+        side = "right",
+        justification = -0.15,
+        width = 0.34,
+        point_interval = NULL,
+        alpha = 0.8,
+        slab_color = NA,
+        show.legend = show_legend
+      ) +
+      geom_errorbar(
+        data = df_summ,
+        aes(
+          x = .data[[x]],
+          y = .data[["med"]],
+          ymin = .data[["lo"]],
+          ymax = .data[["hi"]],
+          group = .data[[group]]
+        ),
+        position = dodge_position,
+        width = 0,
+        linewidth = 0.7,
+        color = "black"
+      ) +
+      geom_point(
+        data = df_summ,
+        aes(
+          x = .data[[x]],
+          y = .data[["med"]],
+          group = .data[[group]]
+        ),
+        position = dodge_position,
+        size = point_size,
+        color = "black"
+      ) +
+      scale_fill_manual(name = legend_label_light_cue, values = fill_values)
+  } else {
+    p <- ggplot() +
+      geom_hline(yintercept = hline_value, linewidth = hline_width) +
+      ggdist::stat_halfeye(
+        data = df_draws,
+        aes(x = .data[[x]], y = .data[[y]]),
+        side = "right",
+        justification = -0.15,
+        width = 0.34,
+        point_interval = NULL,
+        alpha = 0.8,
+        fill = single_fill,
+        slab_color = NA
+      ) +
+      geom_errorbar(
+        data = df_summ,
+        aes(
+          x = .data[[x]],
+          y = .data[["med"]],
+          ymin = .data[["lo"]],
+          ymax = .data[["hi"]]
+        ),
+        width = 0,
+        linewidth = 0.7,
+        color = "black"
+      ) +
+      geom_point(
+        data = df_summ,
+        aes(x = .data[[x]], y = .data[["med"]]),
+        size = point_size,
+        color = "black"
+      )
+  }
+
+  p <- p +
+    labs(x = x_label, y = y_label) +
+    growth_base_plot_theme()
+
+  if (remove_x_text) {
+    p <- p + hide_x_axis_text_theme()
+  }
+
+  p
+}
+
+fill_legend_no_point <- function() {
+  guides(fill = guide_legend(override.aes = list(shape = NA, color = NA)))
+}
+
+boxed_strip_theme <- function(base_size = 12) {
+  theme(
+    strip.background = element_rect(
+      fill = "white",
+      color = "black",
+      linewidth = 0.8
+    ),
+    strip.text = element_text(
+      face = "bold",
+      size = base_size,
+      margin = margin(4, 6, 4, 6)
+    )
+  )
+}
+
+
+```
+
+
+
+## Fitness data 
+
+```{r growth_plot_anc_growth_by_matcue_intervals_from_state_only, echo=FALSE, message=FALSE, warning=FALSE}
+alpha_fix <- median(growth_draws_df$alpha_anc)
+
+state_df <- growth_draws_df %>%
+  select(starts_with("state_anc[")) %>%
+  mutate(across(everything(), ~ exp(alpha_fix + .)))
+
+plot_summ <- state_df %>%
+  pivot_longer(
+    cols = starts_with("state_anc["),
+    names_to = "state",
+    values_to = "fitness"
+  ) %>%
+  mutate(
+    state_id = as.integer(substr(state, 11, 11)),
+    mat_id = (state_id + 1L) %/% 2L)%>%
+  left_join(state_key_growth, by = "state_id") %>%
+   mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  ) %>%
+  group_by(mat_label, cue) %>%
+  summarise(
+    med = median(fitness),
+    lo = quantile(fitness, growth_lo_p),
+    hi = quantile(fitness, growth_hi_p),
+    .groups = "drop"
+  )
+
+ggplot(plot_summ, aes(x = mat_label, y = med, fill = cue)) +
+  geom_col(
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  geom_errorbar(
+    aes(ymin = lo, ymax = hi),
+    position = position_dodge(width = 0.9),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  scale_fill_manual(
+    name = legend_label_light_cue,
+    values = growth_cue_plot_colors
+  ) +
+  labs(
+    x = axis_label_mat_env_full,
+    y = axis_label_growth
+  ) +
+  growth_base_plot_theme()
+```
+
+
+```{r growth_plot_anc_rel_unrel_growth_by_matcue_intervals_state_only, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=4.5}
+alpha_fix_anc <- median(growth_draws_df$alpha_anc)
+alpha_fix_rel <- median(growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`)
+alpha_fix_unrel <- median(growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`)
+
+state_df_anc <- growth_draws_df %>%
+  select(starts_with("state_anc[")) %>%
+  mutate(across(everything(), ~ exp(alpha_fix_anc + .)))  
+
+names(state_df_anc) <- as.character(1:8)
+
+state_df_rel <- growth_draws_df %>%
+  select(starts_with("state_anc["), starts_with("delta_state[1,"))
+
+state_df_rel_sum <- state_df_rel[1:8] + state_df_rel[9:16]
+
+names(state_df_rel_sum) <- as.character(1:8)
+
+state_df_rel_sum <- state_df_rel_sum %>%
+  as_tibble() %>%
+  mutate(across(everything(), ~ exp(alpha_fix_rel + .)))
+
+state_df_unrel <- growth_draws_df %>%
+  select(starts_with("state_anc["), starts_with("delta_state[2,"))
+
+state_df_unrel_sum <- state_df_unrel[1:8] + state_df_unrel[9:16]
+
+names(state_df_unrel_sum) <- as.character(1:8)
+
+state_df_unrel_sum <- state_df_unrel_sum %>%
+  as_tibble() %>%
+  mutate(across(everything(), ~ exp(alpha_fix_unrel + .)))
+
+plot_anc <- state_df_anc %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "state",
+    values_to = "grow"
+  ) %>%
+  mutate(
+    state_id = as.integer(state),
+    treatment = "Ancestral"
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+plot_rel <- state_df_rel_sum %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "state",
+    values_to = "grow"
+  ) %>%
+  mutate(
+    state_id = as.integer(state),
+    treatment = "Reliable"
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+plot_unrel <- state_df_unrel_sum %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "state",
+    values_to = "grow"
+  ) %>%
+  mutate(
+    state_id = as.integer(state),
+    treatment = "Unreliable"
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+plot_summ <- bind_rows(plot_anc, plot_rel, plot_unrel) %>%
+  group_by(treatment, mat_label, cue) %>%
+  summarise(
+    med = median(grow),
+    lo = quantile(grow, growth_lo_p),
+    hi = quantile(grow, growth_hi_p),
+    .groups = "drop"
+  )
+
+ggplot(plot_summ, aes(x = mat_label, y = med, fill = cue)) +
+  geom_col(
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  geom_errorbar(
+    aes(ymin = lo, ymax = hi),
+    position = position_dodge(width = 0.9),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  scale_fill_manual(
+    name = legend_label_light_cue,
+    values = growth_cue_plot_colors
+  ) +
+  labs(
+    x = axis_label_mat_env_full,
+    y = axis_label_growth
+  ) +
+  facet_wrap(~ treatment) +
+  growth_base_plot_theme()
+
+```
+
+
+This figure shows the difference in R0 from the ancestral for reliable and unreliable. i.e. R0_rel-R0_anc and R0_unrel-R0_anc. So the pop growth parameters are calculated, exp'ed, and then difference taken.
+
+
+```{r growth_plot_rel_unrel_minus_anc_growth_contrast_boxplot_style_fecundity_like, echo=FALSE, message=FALSE, warning=FALSE}
+alpha_anc <- growth_draws_df$alpha_anc # get the intercept for anc
+alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]` # get the intercept for anc Plus the difference for reliable
+alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]` # get the intercept for anc Plus the difference for unreliable
+
+#calc anc R0 from median intercept
+state_df_anc <- growth_draws_df %>%
+  select(starts_with("state_anc[")) %>%
+  mutate(across(everything(), ~ exp(alpha_anc + .))) #add intercept and exp()
+
+names(state_df_anc) <- as.character(1:8) #convert column names to state number
+
+
+#calc Rel R0 from median intercept
+state_df_rel <- growth_draws_df %>%
+  select(starts_with("state_anc["), starts_with("delta_state[1,")) #anc state 1-8, del rel 9-16
+
+state_df_rel_sum <- (state_df_rel[1:8] + state_df_rel[9:16] + alpha_rel) %>% #add anc +delRel + intercept
+  as_tibble() %>%
+  mutate(across(everything(), exp)) #convert to natural scale of R0
+names(state_df_rel_sum) <- as.character(1:8)
+
+
+#calc Unrel R0 from median intercept
+state_df_unrel <- growth_draws_df %>%
+  select(starts_with("state_anc["), starts_with("delta_state[1,")) #anc state 1-8, del unrel 9-16
+
+state_df_unrel_sum <- (state_df_unrel[1:8] + state_df_unrel[9:16] + alpha_unrel) %>% #add anc +delRel + intercept
+  as_tibble() %>%
+  mutate(across(everything(), exp)) #convert to natural scale of R0
+names(state_df_unrel_sum) <- as.character(1:8)
+
+
+# make anc info into a long form tidy df and join to state_key_growth to get names of Mat env and cue
+draws_anc <- state_df_anc %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_anc"
+  ) %>% 
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+# make rel info into a long form tidy df and join to state_key_growth to get names of Mat env and cue
+draws_rel <- state_df_rel_sum %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_rel"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+# make unrel info into a long form tidy df and join to state_key_growth to get names of Mat env and cue
+draws_unrel <- state_df_unrel_sum %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_unrel"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+#put the Anc and Rel  into a single df and calc the difference in R0
+df_draws_rel <- draws_rel %>%
+  select(.draw, state_id, mat_label, cue, R0_rel) %>%
+  left_join(
+    draws_anc %>% select(.draw, state_id, R0_anc),
+    by = c(".draw", "state_id")
+  ) %>%
+  mutate(
+    diff_fit = R0_rel - R0_anc,
+    contrast = factor(
+      "Reliable - Ancestral",
+      levels = c("Reliable - Ancestral", "Unreliable - Ancestral")
+    )
+  )
+
+#put the Anc and Unrel  into a single df and calc the difference in R0
+df_draws_unrel <- draws_unrel %>%
+  select(.draw, state_id, mat_label, cue, R0_unrel) %>%
+  left_join(
+    draws_anc %>% select(.draw, state_id, R0_anc),
+    by = c(".draw", "state_id")
+  ) %>%
+  mutate(
+    diff_fit = R0_unrel - R0_anc,
+    contrast = factor(
+      "Unreliable - Ancestral",
+      levels = c("Reliable - Ancestral", "Unreliable - Ancestral")
+    )
+  )
+
+
+# combine Rel and Unrel dfs
+df_draws_both <- bind_rows(df_draws_rel, df_draws_unrel)
+
+#summarise median and quantiles by 
+df_summ_both <- df_draws_both %>%
+  group_by(contrast, mat_label, cue) %>%
+  summarise(
+    med = median(diff_fit),
+    lo = quantile(diff_fit, growth_lo_p),
+    hi = quantile(diff_fit, growth_hi_p),
+    .groups = "drop"
+  )
+
+
+#display plot
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws_both,
+  df_summ = df_summ_both,
+  x = "mat_label",
+  y = "diff_fit",
+  fill = "cue",
+  group = "cue",
+  x_label = axis_label_mat_env_full,
+  y_label = "Fitness Divergence",
+  show_legend = TRUE,
+  dodge_width = 0.7
+) +
+  facet_wrap(~ contrast, nrow = 1) +
+  fill_legend_no_point() +
+  boxed_strip_theme(12) +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10)
+  )
+```
+
+
+Plot the cue effect. This finds the R0 values for each state for each treatment, then subtracts Rel-Anc or Unrel-Anc, so outcome is difference in R0
+
+```{r growth_plot_rel_unrel_vs_anc_cue_effect_contrast_boxplot_style_combined, echo=FALSE, message=FALSE, warning=FALSE}
+alpha_anc <- growth_draws_df$alpha_anc
+alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
+alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
+
+# Calculate ancestral R0 for each state.
+# Add the ancestral median intercept then exp
+state_df_anc <- growth_draws_df %>%
+  select(starts_with("state_anc[")) %>%
+  mutate(across(everything(), ~ exp(alpha_anc + .)))
+
+names(state_df_anc) <- as.character(1:8) #convert column names to state number
+
+# Calculate Reliable R0 by state.
+#   ancestral state effect + Reliable deviation from ancestral + Reliable intercept
+#  then exp to return to the natural scale.
+state_df_rel <- growth_draws_df %>%
+  select(starts_with("state_anc["), starts_with("delta_state[1,"))
+
+state_df_rel_sum <- (state_df_rel[1:8] + state_df_rel[9:16] + alpha_rel) %>%
+  as_tibble() %>%
+  mutate(across(everything(), exp))
+
+names(state_df_rel_sum) <- as.character(1:8)
+
+
+# Calculate Unreliable R0 by state.
+#   ancestral state effect + Unreliable deviation from ancestral + Unreliable intercept
+#  then exp to return to the natural scale.
+state_df_unrel <- growth_draws_df %>%
+  select(starts_with("state_anc["), starts_with("delta_state[2,"))
+
+state_df_unrel_sum <- (state_df_unrel[1:8] + state_df_unrel[9:16] + alpha_unrel) %>%
+  as_tibble() %>%
+  mutate(across(everything(), exp))
+
+names(state_df_unrel_sum) <- as.character(1:8)
+
+# Convert ancestral predictions to long format and attach the state key
+# so each draw is labeled by maternal environment and cue.
+draws_anc <- state_df_anc %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_anc"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+# Do the same for Reliable predictions.
+draws_rel <- state_df_rel_sum %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_rel"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+# Do the same for Unreliable predictions.
+draws_unrel <- state_df_unrel_sum %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_unrel"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+# Within each posterior draw and maternal environment, compute the cue effect
+# for the ancestral population as a difference on the natural scale:
+#   R0 cue - R0  No cue
+cue_effect_anc <- draws_anc %>%
+  select(.draw, mat_label, cue, R0_anc) %>%
+  pivot_wider(
+    names_from = cue,
+    values_from = R0_anc
+  ) %>%
+  mutate(
+    cue_effect_anc = `Blue Light` - `No Light`
+  ) %>%
+  select(.draw, mat_label, cue_effect_anc)
+
+# Compute the analogous cue effect for the Reliable population.
+cue_effect_rel <- draws_rel %>%
+  select(.draw, mat_label, cue, R0_rel) %>%
+  pivot_wider(
+    names_from = cue,
+    values_from = R0_rel
+  ) %>%
+  mutate(
+    cue_effect_rel = `Blue Light` - `No Light`
+  ) %>%
+  select(.draw, mat_label, cue_effect_rel)
+
+# Compute the analogous cue effect for the Unreliable population.
+cue_effect_unrel <- draws_unrel %>%
+  select(.draw, mat_label, cue, R0_unrel) %>%
+  pivot_wider(
+    names_from = cue,
+    values_from = R0_unrel
+  ) %>%
+  mutate(
+    cue_effect_unrel = `Blue Light` - `No Light`
+  ) %>%
+  select(.draw, mat_label, cue_effect_unrel)
+
+# Compare Reliable to Ancestral within each posterior draw and maternal
+# environment. A value of 0 means no change in cue response relative to
+# the ancestor.
+df_draws_rel <- cue_effect_rel %>%
+  left_join(
+    cue_effect_anc,
+    by = c(".draw", "mat_label")
+  ) %>%
+  mutate(
+    cue_effect_diff = cue_effect_rel - cue_effect_anc,
+    contrast = factor(
+      "Reliable - Ancestral",
+      levels = c("Reliable - Ancestral", "Unreliable - Ancestral")
+    )
+  ) %>%
+  select(.draw, mat_label, cue_effect_diff, contrast)
+
+# Compare Unreliable to Ancestral in the same way.
+df_draws_unrel <- cue_effect_unrel %>%
+  left_join(
+    cue_effect_anc,
+    by = c(".draw", "mat_label")
+  ) %>%
+  mutate(
+    cue_effect_diff = cue_effect_unrel - cue_effect_anc,
+    contrast = factor(
+      "Unreliable - Ancestral",
+      levels = c("Reliable - Ancestral", "Unreliable - Ancestral")
+    )
+  ) %>%
+  select(.draw, mat_label, cue_effect_diff, contrast)
+
+# Combine the two treatment-vs-ancestor contrasts into one data frame
+# so they can be plotted side by side with matching scales.
+df_draws_both <- bind_rows(df_draws_rel, df_draws_unrel)
+
+# Summarize the posterior distribution within each panel and maternal
+# environment using the median and central posterior interval.
+df_summ_both <- df_draws_both %>%
+  group_by(contrast, mat_label) %>%
+  summarise(
+    med = median(cue_effect_diff),
+    lo = quantile(cue_effect_diff, growth_lo_p),
+    hi = quantile(cue_effect_diff, growth_hi_p),
+    .groups = "drop"
+  )
+
+# Plot the posterior distributions with median points and interval bars.
+# The horizontal reference line at 0 indicates no evolutionary change
+# in the cue effect relative to the ancestor.
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws_both,
+  df_summ = df_summ_both,
+  x = "mat_label",
+  y = "cue_effect_diff",
+  x_label = axis_label_mat_env_full,
+  y_label = "Light-Plasticity Fitness Divergence",
+  hline_value = 0,
+  single_fill = unname(contrast_color)
+) +
+  facet_wrap(~ contrast, nrow = 1) +
+  boxed_strip_theme(12)
+
+```
+
+
+
+this is the difference of the difference between Rel and Unrel. First calculate the difference in R0 based on cue for Rel, and Unrel. Then do Rel-Unrel of that difference. 
+
+
+```{r growth_plot_rel_vs_unrel_cue_effect_difference_contrast_boxplot_style, echo=FALSE, message=FALSE, warning=FALSE}
+alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
+alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
+
+# Calculate Reliable R0 for each of the 8 maternal-environment x cue states.
+# This combines:
+#   ancestral state effect
+#   + Reliable deviation from ancestral
+#   + Reliable intercept
+# and then exponentiates to return to the natural scale.
+state_df_rel <- growth_draws_df %>%
+  select(starts_with("state_anc["), starts_with("delta_state[1,"))
+
+state_df_rel_sum <- (state_df_rel[1:8] + state_df_rel[9:16] + alpha_rel) %>%
+  as_tibble() %>%
+  mutate(across(everything(), exp))
+
+names(state_df_rel_sum) <- as.character(1:8)
+
+# Calculate Unreliable R0 for each of the 8 states.
+# This uses the same ancestral baseline plus the Unreliable deviation
+# and the Unreliable intercept, then exponentiates to the natural scale.
+state_df_unrel <- growth_draws_df %>%
+  select(starts_with("state_anc["), starts_with("delta_state[2,"))
+
+state_df_unrel_sum <- (state_df_unrel[1:8] + state_df_unrel[9:16] + alpha_unrel) %>%
+  as_tibble() %>%
+  mutate(across(everything(), exp))
+
+names(state_df_unrel_sum) <- as.character(1:8)
+
+# Convert Reliable predictions to long format and attach the state key
+# so each draw is labeled by maternal environment and cue.
+draws_rel <- state_df_rel_sum %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_rel"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+# Do the same for Unreliable predictions.
+draws_unrel <- state_df_unrel_sum %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_unrel"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")%>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+# Within each posterior draw and maternal environment, compute the cue effect
+# for the Reliable population as a difference on the natural scale:
+#   R0 under Blue Light - R0 under No Light
+cue_effect_rel <- draws_rel %>%
+  select(.draw, mat_label, cue, R0_rel) %>%
+  pivot_wider(
+    names_from = cue,
+    values_from = R0_rel
+  ) %>%
+  mutate(
+    cue_effect_rel = `Blue Light` - `No Light`
+  ) %>%
+  select(.draw, mat_label, cue_effect_rel)
+
+# Compute the analogous cue effect for the Unreliable population.
+cue_effect_unrel <- draws_unrel %>%
+  select(.draw, mat_label, cue, R0_unrel) %>%
+  pivot_wider(
+    names_from = cue,
+    values_from = R0_unrel
+  ) %>%
+  mutate(
+    cue_effect_unrel = `Blue Light` - `No Light`
+  ) %>%
+  select(.draw, mat_label, cue_effect_unrel)
+
+# Join Reliable and Unreliable cue effects and compute the treatment contrast
+# in cue response as a difference of cue effects:
+#   (Reliable cue effect) - (Unreliable cue effect)
+# A value of 0 means the two evolved treatments have the same cue response.
+df_draws <- cue_effect_rel %>%
+  left_join(
+    cue_effect_unrel,
+    by = c(".draw", "mat_label")
+  ) %>%
+  mutate(
+    cue_effect_diff = cue_effect_rel - cue_effect_unrel
+  )
+
+# Summarize the posterior distribution within each maternal environment
+# using the median and central posterior interval.
+df_summ <- df_draws %>%
+  group_by(mat_label) %>%
+  summarise(
+    med = median(cue_effect_diff),
+    lo = quantile(cue_effect_diff, growth_lo_p),
+    hi = quantile(cue_effect_diff, growth_hi_p),
+    .groups = "drop"
+  )
+
+# Plot the posterior distributions with median points and interval bars.
+# The horizontal reference line at 0 indicates no difference in cue effect
+# between Reliable and Unreliable populations.
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws,
+  df_summ = df_summ,
+  x = "mat_label",
+  y = "cue_effect_diff",
+  x_label = axis_label_mat_env_full,
+  y_label = "Light-Plasticity Fitness Differentiation",
+  hline_value = 0,
+  single_fill = unname(contrast_color)
+)
+```
+
+
+
+
+Here the contrasts in mean log fitness are calculated on log scale (because it is geo mean of R0). We then plot fixed-reference changes on the R0 scale so they can be seen in terms of number of offspring. We do this by taking exp( Anc  + 1/2 diff in log fit due to evo treat)-exp( Anc  - 1/2 diff in log fit due to evo treat)
+
+
+```{r geo_mean , echo=FALSE, message=FALSE, warning=FALSE}
+
+alpha_anc <- growth_draws_df$alpha_anc
+alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
+alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
+
+
+# STEP 1: Build log-scale state predictions for each treatment
+
+
+state_df_anc_log <- growth_draws_df %>%
+  select(paste0("state_anc[", 1:8, "]")) %>%
+  mutate(across(everything(), ~ alpha_anc + .))
+
+names(state_df_anc_log) <- as.character(1:8)
+
+state_df_rel <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[1,", 1:8, "]")
+  )
+
+state_df_rel_log <- (state_df_rel[1:8] + state_df_rel[9:16] + alpha_rel) %>%
+  as_tibble()
+
+names(state_df_rel_log) <- as.character(1:8)
+
+state_df_unrel <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[2,", 1:8, "]")
+  )
+
+state_df_unrel_log <- (state_df_unrel[1:8] + state_df_unrel[9:16] + alpha_unrel) %>%
+  as_tibble()
+
+names(state_df_unrel_log) <- as.character(1:8)
+
+
+# STEP 2: Average on the log scale
+# In this file, Blue Light states are 2, 4, 6, 8
+
+
+blue_state_ids <- c(2, 4, 6, 8)
+all_state_ids <- 1:8
+
+avg_log_anc_blue <- rowMeans(state_df_anc_log[, blue_state_ids])
+avg_log_rel_blue <- rowMeans(state_df_rel_log[, blue_state_ids])
+
+avg_log_anc_all <- rowMeans(state_df_anc_log[, all_state_ids])
+avg_log_unrel_all <- rowMeans(state_df_unrel_log[, all_state_ids])
+
+
+# STEP 3: Log-scale contrasts
+# Match the existing plotting logic exactly
+
+
+diff_rel_vs_anc <- avg_log_rel_blue - avg_log_anc_blue
+diff_unrel_vs_anc <- avg_log_unrel_all - avg_log_anc_all
+
+
+# STEP 4: Fixed ancestral reference on the log scale
+# Use the median overall Anc value on the log scale
+
+
+median_anc_log <- median(avg_log_anc_all)
+
+
+# STEP 5: Map the log-scale contrast back to the natural scale
+# using the symmetric transformation around the fixed reference
+
+
+diff_rel_nat <- exp(median_anc_log + 0.5 * diff_rel_vs_anc) -
+  exp(median_anc_log - 0.5 * diff_rel_vs_anc)
+
+diff_unrel_nat <- exp(median_anc_log + 0.5 * diff_unrel_vs_anc) -
+  exp(median_anc_log - 0.5 * diff_unrel_vs_anc)
+
+
+# STEP 6: Assemble posterior draws for plotting
+
+
+df_draws <- tibble(
+  contrast = factor(
+    rep(
+      c(
+        "Reliable - Ancestral",
+        "Unreliable - Ancestral"
+      ),
+      each = length(diff_rel_nat)
+    ),
+    levels = c(
+        "Reliable - Ancestral",
+        "Unreliable - Ancestral"
+    )
+  ),
+  diff_fit = c(diff_rel_nat, diff_unrel_nat)
+)
+
+
+# STEP 7: Summarize posterior distributions
+
+
+df_summ <- df_draws %>%
+  group_by(contrast) %>%
+  summarise(
+    med = median(diff_fit),
+    lo = quantile(diff_fit, growth_lo_p),
+    hi = quantile(diff_fit, growth_hi_p),
+    .groups = "drop"
+  )
+
+
+# STEP 8: Plot (facet label at top, consistent style)
+
+
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws %>% mutate(x = " "),
+  df_summ  = df_summ  %>% mutate(x = " "),
+  x = "x",
+  y = "diff_fit",
+  x_label = NULL,
+  y_label = "Divergence in Fitness",
+  hline_value = 0,
+  single_fill = unname(contrast_color)
+) +
+  facet_wrap(~ contrast, nrow = 1) +
+  boxed_strip_theme()+
+  xlab("Experimental Evolution Contrast")
+```
+
+
+Showing the average log fitness transformed to the natural R0 scale. i.e. geo mean of R0
+
+
+
+```{r growth_plot_average_growth_custom_blue_rel_all_unrel, fig.width=8, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Build treatment-specific log-fitness values
+
+alpha_anc <- growth_draws_df$alpha_anc
+alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
+alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
+
+state_df_anc <- growth_draws_df %>%
+  select(paste0("state_anc[", 1:8, "]")) %>%
+  setNames(1:8)
+
+state_df_rel_raw <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[1,", 1:8, "]")
+  )
+
+state_df_unrel_raw <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[2,", 1:8, "]")
+  )
+
+log_fit_anc <- (state_df_anc + alpha_anc) %>%
+  as_tibble() %>%
+  setNames(1:8)
+
+log_fit_rel <- (state_df_rel_raw[1:8] + state_df_rel_raw[9:16] + alpha_rel) %>%
+  as_tibble() %>%
+  setNames(1:8)
+
+log_fit_unrel <- (state_df_unrel_raw[1:8] + state_df_unrel_raw[9:16] + alpha_unrel) %>%
+  as_tibble() %>%
+  setNames(1:8)
+
+# Geometric mean fitness
+
+blue_state_ids <- c(2, 4, 6, 8)
+all_state_ids  <- 1:8
+
+avg_anc_blue   <- exp(rowMeans(log_fit_anc[, blue_state_ids]))
+avg_rel_blue   <- exp(rowMeans(log_fit_rel[, blue_state_ids]))
+
+avg_anc_all    <- exp(rowMeans(log_fit_anc[, all_state_ids]))
+avg_unrel_all  <- exp(rowMeans(log_fit_unrel[, all_state_ids]))
+
+# Posterior draws
+
+n_draw <- nrow(growth_draws_df)
+
+df_draws <- tibble(
+  group = factor(
+    rep(
+      c(
+        "Anc (blue only)",
+        "Rel (blue only)",
+        "Anc (all env)",
+        "Unrel (all env)"
+      ),
+      each = n_draw
+    ),
+    levels = c(
+      "Anc (blue only)",
+      "Rel (blue only)",
+      "Anc (all env)",
+      "Unrel (all env)"
+    )
+  ),
+  x_dummy = factor("", levels = ""),
+  mean_growth = c(avg_anc_blue, avg_rel_blue, avg_anc_all, avg_unrel_all)
+)
+
+# Summaries
+
+df_summ <- df_draws %>%
+  group_by(group, x_dummy) %>%
+  summarise(
+    med = median(mean_growth),
+    lo = quantile(mean_growth, growth_lo_p),
+    hi = quantile(mean_growth, growth_hi_p),
+    .groups = "drop"
+  )
+
+# Plot
+
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws,
+  df_summ = df_summ,
+  x = "x_dummy",
+  y = "mean_growth",
+  x_label = NULL,
+  y_label = "Geometric Mean Fitness",
+  hline_value = NULL,
+  remove_x_text = TRUE,
+  single_fill = unname(contrast_color)
+) +
+  facet_wrap(
+    ~ group,
+    nrow = 1,
+    labeller = as_labeller(c(
+      "Anc (blue only)"  = "Ancestral",
+      "Rel (blue only)"  = "Reliable",
+      "Anc (all env)"    = "Ancestral",
+      "Unrel (all env)"  = "Unreliable"
+    ))
+  ) +
+  geom_text(
+    data = data.frame(
+      group = c("Anc (blue only)", "Rel (blue only)",
+                "Anc (all env)", "Unrel (all env)"),
+      x_dummy = "",
+      y = -0.1,
+      label = c("Blue Light Only", "Blue Light Only",
+                "All Environments", "All Environments")
+    ),
+    aes(x = x_dummy, y = y, label = label),
+    inherit.aes = FALSE,
+    size = 3
+  ) +
+  geom_hline(yintercept = 0, linewidth = 0.3) +
+  boxed_strip_theme(12) +
+  theme(
+    legend.position = "none",
+    axis.line.x = element_blank(),
+    plot.margin = margin(t = 5.5, r = 5.5, b = 20, l = 5.5)
+  ) +
+  scale_y_continuous(breaks = c(0, 1, 2, 3)) +
+  coord_cartesian(ylim = c(-0.25, 3))
+
+```
+
+
+ 
+Here we go to the natural scale and then take the contrast between cue and no cue R0 averaged across mat ox states
+ 
+```{r growth_plot_overall_cue_contrast_averaged_across_mat, fig.width=9, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+
+alpha_anc <- growth_draws_df$alpha_anc
+alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
+alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
+
+state_df_anc <- growth_draws_df %>%
+  select(paste0("state_anc[", 1:8, "]")) %>%
+  setNames(1:8)
+
+state_df_rel_raw <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[1,", 1:8, "]")
+  )
+
+state_df_unrel_raw <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[2,", 1:8, "]")
+  )
+
+log_fit_anc <- (state_df_anc + alpha_anc) %>%
+  as_tibble() %>%
+  setNames(1:8)
+
+log_fit_rel <- (state_df_rel_raw[1:8] + state_df_rel_raw[9:16] + alpha_rel) %>%
+  as_tibble() %>%
+  setNames(1:8)
+
+log_fit_unrel <- (state_df_unrel_raw[1:8] + state_df_unrel_raw[9:16] + alpha_unrel) %>%
+  as_tibble() %>%
+  setNames(1:8)
+
+
+ 
+
+
+fit_anc <- exp(log_fit_anc)
+fit_rel <- exp(log_fit_rel)
+fit_unrel <- exp(log_fit_unrel)
+
+
+
+# State pairs are:
+#   2 - 1
+#   4 - 3
+#   6 - 5
+#   8 - 7
+
+
+cue_effect_anc <- (
+  (fit_anc$`2` - fit_anc$`1`) +
+  (fit_anc$`4` - fit_anc$`3`) +
+  (fit_anc$`6` - fit_anc$`5`) +
+  (fit_anc$`8` - fit_anc$`7`)
+) / 4
+
+cue_effect_rel <- (
+  (fit_rel$`2` - fit_rel$`1`) +
+  (fit_rel$`4` - fit_rel$`3`) +
+  (fit_rel$`6` - fit_rel$`5`) +
+  (fit_rel$`8` - fit_rel$`7`)
+) / 4
+
+cue_effect_unrel <- (
+  (fit_unrel$`2` - fit_unrel$`1`) +
+  (fit_unrel$`4` - fit_unrel$`3`) +
+  (fit_unrel$`6` - fit_unrel$`5`) +
+  (fit_unrel$`8` - fit_unrel$`7`)
+) / 4
+
+
+ 
+
+n_draw <- nrow(growth_draws_df)
+
+df_draws <- tibble(
+  treatment_box = factor(
+    rep(c("Ancestral", "Reliable", "Unreliable"), each = n_draw),
+    levels = c("Ancestral", "Reliable", "Unreliable")
+  ),
+  x_dummy = factor("", levels = ""),
+  diff_fit = c(cue_effect_anc, cue_effect_rel, cue_effect_unrel)
+)
+
+ 
+
+
+df_summ <- df_draws %>%
+  group_by(treatment_box, x_dummy) %>%
+  summarise(
+    med = median(diff_fit),
+    lo = quantile(diff_fit, growth_lo_p),
+    hi = quantile(diff_fit, growth_hi_p),
+    .groups = "drop"
+  )
+
+
+
+
+
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws,
+  df_summ = df_summ,
+  x = "x_dummy",
+  y = "diff_fit",
+  x_label = NULL,
+  y_label = "Light-Plasticity for Fitness",
+  hline_value = NULL,
+  remove_x_text = TRUE,
+  single_fill = unname(contrast_color)
+) +
+  facet_wrap(~ treatment_box, nrow = 1) +
+  boxed_strip_theme(12) +
+  theme(
+    legend.position = "none"
+  )+ labs(x = "Experimental Evolution Regime")
+  
+```
+
+
+
+Difference in cue effect on R0 between Rel and Unrel
+
+
+```{r growth_plot_rel_vs_unrel_overall_cue_contrast, fig.width=6, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+
+alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
+alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
+
+state_df_rel_raw <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[1,", 1:8, "]")
+  )
+
+state_df_unrel_raw <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[2,", 1:8, "]")
+  )
+
+log_fit_rel <- (state_df_rel_raw[1:8] + state_df_rel_raw[9:16] + alpha_rel) %>%
+  as_tibble() %>%
+  setNames(1:8)
+
+log_fit_unrel <- (state_df_unrel_raw[1:8] + state_df_unrel_raw[9:16] + alpha_unrel) %>%
+  as_tibble() %>%
+  setNames(1:8)
+
+fit_rel <- exp(log_fit_rel)
+fit_unrel <- exp(log_fit_unrel)
+
+cue_effect_rel <- (
+  (fit_rel$`2` - fit_rel$`1`) +
+    (fit_rel$`4` - fit_rel$`3`) +
+    (fit_rel$`6` - fit_rel$`5`) +
+    (fit_rel$`8` - fit_rel$`7`)
+) / 4
+
+cue_effect_unrel <- (
+  (fit_unrel$`2` - fit_unrel$`1`) +
+    (fit_unrel$`4` - fit_unrel$`3`) +
+    (fit_unrel$`6` - fit_unrel$`5`) +
+    (fit_unrel$`8` - fit_unrel$`7`)
+) / 4
+
+diff_fit <- cue_effect_rel - cue_effect_unrel
+
+df_draws <- tibble(
+  contrast_box = factor(
+    "Reliable - Unreliable",
+    levels = "Reliable - Unreliable"
+  ),
+  x_dummy = factor("", levels = ""),
+  diff_fit = diff_fit
+)
+
+df_summ <- df_draws %>%
+  group_by(contrast_box, x_dummy) %>%
+  summarise(
+    med = median(diff_fit),
+    lo = quantile(diff_fit, growth_lo_p),
+    hi = quantile(diff_fit, growth_hi_p),
+    .groups = "drop"
+  )
+
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws,
+  df_summ = df_summ,
+  x = "x_dummy",
+  y = "diff_fit",
+  x_label = NULL,
+  y_label = "Light-Plasticity Fitness Differentiation",
+  hline_value = 0,
+  remove_x_text = TRUE,
+  single_fill = unname(contrast_color)
+) +
+  facet_wrap(~ contrast_box, nrow = 1) +
+  boxed_strip_theme(12) +
+  labs(
+    x = "Experimental Evolution Regime",
+    tag = "Overall \n\n Sup Fig. 7"
+  ) +
+  theme(
+    legend.position = "none",
+    plot.tag.position = c(0.98, 0.98),
+    plot.tag = element_text(
+      size = 12,
+      face = "bold",
+      hjust = 1,
+      vjust = 1
+    ),
+    plot.margin = margin(t = 8, r = 18, b = 5, l = 5)
+  )
+```
+
+
+
+Figure out exactly how much of the posterior is above 0. 6.3% is below zero.
+```{r}
+df_draws %>%
+  group_by(contrast_box, x_dummy) %>%
+  summarise(
+    med = median(diff_fit),
+    lo = quantile(diff_fit, 0.063),
+    .groups = "drop"
+  )
+```
+
+
+
+Analyze the total difference in fitness under the blue light cue between Reliable and Unreliable:
+```{r growth_plot_rel_vs_unrel_blue_light_diff , echo=FALSE, message=FALSE, warning=FALSE, fig.width=12, fig.height=12 }
+alpha_rel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[1]`
+alpha_unrel <- growth_draws_df$alpha_anc + growth_draws_df$`delta_alpha[2]`
+
+# Build natural-scale Reliable fitness for each of the 8 state combinations.
+state_df_rel <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[1,", 1:8, "]")
+  )
+
+state_df_rel_sum <- (state_df_rel[1:8] + state_df_rel[9:16] + alpha_rel) %>%
+  as_tibble() %>%
+  mutate(across(everything(), exp))
+
+names(state_df_rel_sum) <- as.character(1:8)
+
+# Build natural-scale Unreliable fitness for each of the 8 state combinations.
+state_df_unrel <- growth_draws_df %>%
+  select(
+    paste0("state_anc[", 1:8, "]"),
+    paste0("delta_state[2,", 1:8, "]")
+  )
+
+state_df_unrel_sum <- (state_df_unrel[1:8] + state_df_unrel[9:16] + alpha_unrel) %>%
+  as_tibble() %>%
+  mutate(across(everything(), exp))
+
+names(state_df_unrel_sum) <- as.character(1:8)
+
+# Convert Reliable predictions to long format and attach maternal-environment labels.
+draws_rel <- state_df_rel_sum %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_rel"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")
+
+# Do the same for Unreliable predictions.
+draws_unrel <- state_df_unrel_sum %>%
+  mutate(.draw = row_number()) %>%
+  pivot_longer(
+    cols = all_of(as.character(1:8)),
+    names_to = "state",
+    values_to = "R0_unrel"
+  ) %>%
+  mutate(
+    state_id = as.integer(state)
+  ) %>%
+  left_join(state_key_growth, by = "state_id")
+
+# Keep only Blue Light states, then contrast Reliable and Unreliable fitness
+# within each posterior draw and maternal environment.
+df_draws <- draws_rel %>%
+  filter(cue == "Blue Light") %>%
+  select(.draw, mat_label, R0_rel) %>%
+  left_join(
+    draws_unrel %>%
+      filter(cue == "Blue Light") %>%
+      select(.draw, mat_label, R0_unrel),
+    by = c(".draw", "mat_label")
+  ) %>%
+  mutate(
+    rel_minus_unrel_blue_fitness = R0_rel - R0_unrel,
+    mat_label = factor(mat_label, levels = growth_key_mat_levels)
+  )
+
+# Summarize the posterior distribution for each maternal environment.
+df_summ <- df_draws %>%
+  group_by(mat_label) %>%
+  summarise(
+    med = median(rel_minus_unrel_blue_fitness),
+    lo = quantile(rel_minus_unrel_blue_fitness, growth_lo_p),
+    hi = quantile(rel_minus_unrel_blue_fitness, growth_hi_p),
+    .groups = "drop"
+  )
+
+# Plot posterior half-eyes, medians, and intervals.
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws,
+  df_summ = df_summ,
+  x = "mat_label",
+  y = "rel_minus_unrel_blue_fitness",
+  x_label = axis_label_mat_env_full,
+  y_label = "Blue Light Fitness Divergence",
+  hline_value = 0,
+  show_legend = FALSE,
+  single_fill = unname(contrast_color)
+)
+```
+
+
+
+
+
+
+
+```{r growth_plot_growth_variance_pairs_shared_pop, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=8}
+
+xlim_common <- c(0, 1.2)
+ylim_common <- c(0, 1.2)
+
+draws_var <- growth_draws_df %>%
+  transmute(
+    `Block SD` = sigma_block,
+    `Sequence SD` = sigma_seq,
+    `Replicate Population SD` = sigma_pop,
+    `Likelihood SD` = sigma_y
+  )
+
+draw_variance_matrix <- function(df_plot) {
+  vars <- names(df_plot)
+  k <- length(vars)
+
+  grid::grid.newpage()
+  grid::pushViewport(grid::viewport(layout = grid::grid.layout(k, k)))
+
+  for (i in seq_len(k)) {
+    for (j in seq_len(k)) {
+
+      grid::pushViewport(
+        grid::viewport(layout.pos.row = i, layout.pos.col = j)
+      )
+
+      xvar <- vars[j]
+      yvar <- vars[i]
+
+      if (i == j) {
+        p <- ggplot(df_plot, aes(x = .data[[xvar]])) +
+          geom_density(fill = "steelblue", alpha = 0.7, color = "navy") +
+          coord_cartesian(xlim = xlim_common) +
+          labs(
+            x = xvar,
+            y = "Density"
+          ) +scale_x_continuous(n.breaks = 3)+
+scale_y_continuous(n.breaks = 3)+
+          theme_bw(base_size = 14) +
+          theme(
+            axis.title.x = element_text(size = 12),
+  axis.title.y = element_text(size = 12),
+  axis.text.x  = element_text(size = 8),
+  axis.text.y  = element_text(size = 8)
+          )
+      } else {
+        p <- ggplot(df_plot, aes(x = .data[[xvar]], y = .data[[yvar]])) +
+          geom_point(size = 0.5, alpha = 0.5, color = "navy") +
+          coord_cartesian(xlim = xlim_common, ylim = ylim_common) +
+          labs(
+            x = xvar,
+            y = yvar
+          ) +scale_x_continuous(n.breaks = 3)+
+scale_y_continuous(n.breaks = 3)+
+          theme_bw(base_size = 12) +
+          theme(
+            axis.title.x = element_text(size = 12),
+  axis.title.y = element_text(size = 12),
+  axis.text.x  = element_text(size = 8),
+  axis.text.y  = element_text(size = 8)
+          )
+      }
+
+      print(p, newpage = FALSE)
+      grid::popViewport()
+    }
+  }
+
+  grid::popViewport()
+}
+
+draw_variance_matrix(draws_var)
+```
+
+
+
+
+
+### Sequence specific fitness estimates
+
+
+
+
+
+
+And now for the model with both Rel and Unrel fit at the same time.
+
+```{r growth_read_draws_anc_rel_unrel_by_seq_state_only, include=FALSE}
+draws_growth_anc_rel_unrel_by_seq_state_only <- readRDS(
+  "stan_output/growth_anc_rel_unrel_by_seq_state_only_draws.rds"
+)
+
+growth_anc_rel_unrel_by_seq_draws_df <- posterior::as_draws_df(
+  draws_growth_anc_rel_unrel_by_seq_state_only
+)
+```
+
+
+ 
+```{r growth_build_plot_df_rel_by_sequence_state_only_from_full_model, include=FALSE}
+# Extract posterior draws of sequence-specific Reliable mean log fitness
+# for each state, then transform to the natural scale for plotting.
+
+plot_df_rel_seq_from_full_model <- growth_anc_rel_unrel_by_seq_draws_df %>%
+  dplyr::select(dplyr::starts_with("mu_rel_state[")) %>%
+  tibble::rowid_to_column(".draw") %>%
+  tidyr::pivot_longer(
+    cols = -.draw,
+    names_to = "param",
+    values_to = "log_growth"
+  ) %>%
+  tidyr::extract(
+    param,
+    into = c("seq_id", "state_id"),
+    regex = "mu_rel_state\\[(\\d+),(\\d+)\\]",
+    convert = TRUE
+  ) %>%
+  dplyr::mutate(
+    growth = exp(log_growth)
+  ) %>%
+  dplyr::left_join(state_key_growth, by = "state_id") %>%
+  dplyr::mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light")),
+    sequence = factor(
+      paste("Sequence", seq_id),
+      levels = paste("Sequence", sort(unique(seq_id)))
+    )
+  )
+
+plot_summ_rel_seq_from_full_model <- plot_df_rel_seq_from_full_model %>%
+  dplyr::group_by(sequence, mat_label, cue) %>%
+  dplyr::summarise(
+    med = median(growth),
+    lo = quantile(growth, growth_lo_p),
+    hi = quantile(growth, growth_hi_p),
+    .groups = "drop"
+  )
+```
+
+
+ 
+```{r growth_plot_rel_by_sequence_matcue_intervals_state_only_from_full_model, fig.width=9, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(
+  plot_summ_rel_seq_from_full_model,
+  aes(x = mat_label, y = med, fill = cue)
+) +
+  geom_col(
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  geom_errorbar(
+    aes(ymin = lo, ymax = hi),
+    position = position_dodge(width = 0.9),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  facet_wrap(~ sequence, nrow = 1) +
+  scale_fill_manual(
+    name = legend_label_light_cue,
+    values = growth_cue_plot_colors
+  ) +
+  labs(
+    x = axis_label_mat_env_full,
+    y = axis_label_growth
+  ) +
+  growth_base_plot_theme()
+```
+
+
+
+
+```{r growth_build_plot_df_unrel_by_sequence_state_only_from_full_model, include=FALSE}
+# Extract posterior draws of sequence-specific Unreliable mean log fitness
+# for each state, then transform to the natural scale for plotting.
+
+plot_df_unrel_seq_from_full_model <- growth_anc_rel_unrel_by_seq_draws_df %>%
+  dplyr::select(dplyr::starts_with("mu_unrel_state[")) %>%
+  tibble::rowid_to_column(".draw") %>%
+  tidyr::pivot_longer(
+    cols = -.draw,
+    names_to = "param",
+    values_to = "log_growth"
+  ) %>%
+  tidyr::extract(
+    param,
+    into = c("seq_id", "state_id"),
+    regex = "mu_unrel_state\\[(\\d+),(\\d+)\\]",
+    convert = TRUE
+  ) %>%
+  dplyr::mutate(
+    growth = exp(log_growth)
+  ) %>%
+  dplyr::left_join(state_key_growth, by = "state_id") %>%
+  dplyr::mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light")),
+    sequence = factor(
+      paste("Sequence", seq_id),
+      levels = paste("Sequence", sort(unique(seq_id)))
+    )
+  )
+
+plot_summ_unrel_seq_from_full_model <- plot_df_unrel_seq_from_full_model %>%
+  dplyr::group_by(sequence, mat_label, cue) %>%
+  dplyr::summarise(
+    med = median(growth),
+    lo = quantile(growth, growth_lo_p),
+    hi = quantile(growth, growth_hi_p),
+    .groups = "drop"
+  )
+```
+
+
+
+```{r growth_plot_unrel_by_sequence_matcue_intervals_state_only_from_full_model, fig.width=9, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(
+  plot_summ_unrel_seq_from_full_model,
+  aes(x = mat_label, y = med, fill = cue)
+) +
+  geom_col(
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  geom_errorbar(
+    aes(ymin = lo, ymax = hi),
+    position = position_dodge(width = 0.9),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  facet_wrap(~ sequence, nrow = 1) +
+  scale_fill_manual(
+    name = legend_label_light_cue,
+    values = growth_cue_plot_colors
+  ) +
+  labs(
+    x = axis_label_mat_env_full,
+    y = axis_label_growth
+  ) +
+  growth_base_plot_theme()
+```
+
+
+
+Plot the fitness divergence between Reliable and Unreliable by sequence. To do this we average over maternal oxygen envirnoments and only take the contrast the presence of blue light.
+```{r growth_build_plot_df_rel_minus_unrel_blue_only_by_sequence_from_full_model, include=FALSE}
+
+
+plot_df_rel_blue_only_by_seq <- growth_anc_rel_unrel_by_seq_draws_df %>%
+  dplyr::select(dplyr::starts_with("mu_rel_state[")) %>%
+  tibble::rowid_to_column(".draw") %>%
+  tidyr::pivot_longer(
+    cols = -.draw,
+    names_to = "param",
+    values_to = "log_growth"
+  ) %>%
+  tidyr::extract(
+    param,
+    into = c("seq_id", "state_id"),
+    regex = "mu_rel_state\\[(\\d+),(\\d+)\\]",
+    convert = TRUE
+  ) %>%
+  dplyr::mutate(
+    rel_growth = exp(log_growth)
+  ) %>%
+  dplyr::select(.draw, seq_id, state_id, rel_growth) %>%
+  dplyr::left_join(state_key_growth, by = "state_id") %>%
+  dplyr::filter(cue == "Blue Light")
+
+plot_df_unrel_blue_only_by_seq <- growth_anc_rel_unrel_by_seq_draws_df %>%
+  dplyr::select(dplyr::starts_with("mu_unrel_state[")) %>%
+  tibble::rowid_to_column(".draw") %>%
+  tidyr::pivot_longer(
+    cols = -.draw,
+    names_to = "param",
+    values_to = "log_growth"
+  ) %>%
+  tidyr::extract(
+    param,
+    into = c("seq_id", "state_id"),
+    regex = "mu_unrel_state\\[(\\d+),(\\d+)\\]",
+    convert = TRUE
+  ) %>%
+  dplyr::mutate(
+    unrel_growth = exp(log_growth)
+  ) %>%
+  dplyr::select(.draw, seq_id, state_id, unrel_growth) %>%
+  dplyr::left_join(state_key_growth, by = "state_id") %>%
+  dplyr::filter(cue == "Blue Light")
+
+plot_df_rel_minus_unrel_blue_only_by_seq <- plot_df_rel_blue_only_by_seq %>%
+  dplyr::select(.draw, seq_id, state_id, rel_growth) %>%
+  dplyr::left_join(
+    plot_df_unrel_blue_only_by_seq %>%
+      dplyr::select(.draw, seq_id, state_id, unrel_growth),
+    by = c(".draw", "seq_id", "state_id")
+  ) %>%
+  dplyr::group_by(.draw, seq_id) %>%
+  dplyr::summarise(
+    diff_rel_minus_unrel = mean(rel_growth - unrel_growth),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    sequence = factor(
+      paste("Sequence", seq_id),
+      levels = paste("Sequence", sort(unique(seq_id)))
+    )
+  )
+
+plot_summ_rel_minus_unrel_blue_only_by_seq <- plot_df_rel_minus_unrel_blue_only_by_seq %>%
+  dplyr::group_by(sequence) %>%
+  dplyr::summarise(
+    med = median(diff_rel_minus_unrel),
+    lo = quantile(diff_rel_minus_unrel, growth_lo_p),
+    hi = quantile(diff_rel_minus_unrel, growth_hi_p),
+    .groups = "drop"
+  )
+```
+
+```{r growth_plot_rel_minus_unrel_blue_only_by_sequence_from_full_model, echo=FALSE, message=FALSE, warning=FALSE}
+growth_plot_halfeye_with_summary(
+  df_draws = plot_df_rel_minus_unrel_blue_only_by_seq,
+  df_summ = plot_summ_rel_minus_unrel_blue_only_by_seq,
+  x = "sequence",
+  y = "diff_rel_minus_unrel",
+  x_label = NULL,
+  y_label = "Blue Light Fitness Divergence",
+  single_fill = contrast_color
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.4,
+    color = "grey40"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5)
+  )
+```
+
+Get prepared to plot the cue response divergence by maternal env for each seq.
+```{r growth_build_plot_df_rel_minus_unrel_log_cue_contrast_by_sequence_from_full_model, include=FALSE}
+# Build posterior draw-level contrasts of the Reliable cue response
+# against the Unreliable cue response, separately for each sequence
+# and maternal environment, on the log scale.
+#
+# For each draw, sequence, and maternal environment:
+#   cue effect = log_growth_BlueLight - log_growth_NoLight
+#   contrast   = Reliable cue effect - Unreliable cue effect
+
+plot_df_rel_seq_log_cue_only <- growth_anc_rel_unrel_by_seq_draws_df %>%
+  dplyr::select(dplyr::starts_with("mu_rel_state[")) %>%
+  tibble::rowid_to_column(".draw") %>%
+  tidyr::pivot_longer(
+    cols = -.draw,
+    names_to = "param",
+    values_to = "log_growth"
+  ) %>%
+  tidyr::extract(
+    param,
+    into = c("seq_id", "state_id"),
+    regex = "mu_rel_state\\[(\\d+),(\\d+)\\]",
+    convert = TRUE
+  ) %>%
+  dplyr::left_join(state_key_growth, by = "state_id") %>%
+  dplyr::mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  ) %>%
+  dplyr::select(.draw, seq_id, mat_label, cue, log_growth) %>%
+  tidyr::pivot_wider(
+    names_from = cue,
+    values_from = log_growth
+  ) %>%
+  dplyr::mutate(
+    cue_contrast_rel_log = exp(`Blue Light`) - exp(`No Light`)
+  ) %>%
+  dplyr::select(.draw, seq_id, mat_label, cue_contrast_rel_log)
+
+plot_df_unrel_seq_log_cue_only <- growth_anc_rel_unrel_by_seq_draws_df %>%
+  dplyr::select(dplyr::starts_with("mu_unrel_state[")) %>%
+  tibble::rowid_to_column(".draw") %>%
+  tidyr::pivot_longer(
+    cols = -.draw,
+    names_to = "param",
+    values_to = "log_growth"
+  ) %>%
+  tidyr::extract(
+    param,
+    into = c("seq_id", "state_id"),
+    regex = "mu_unrel_state\\[(\\d+),(\\d+)\\]",
+    convert = TRUE
+  ) %>%
+  dplyr::left_join(state_key_growth, by = "state_id") %>%
+  dplyr::mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  ) %>%
+  dplyr::select(.draw, seq_id, mat_label, cue, log_growth) %>%
+  tidyr::pivot_wider(
+    names_from = cue,
+    values_from = log_growth
+  ) %>%
+  dplyr::mutate(
+    cue_contrast_unrel_log = exp(`Blue Light`) - exp(`No Light`)
+  ) %>%
+  dplyr::select(.draw, seq_id, mat_label, cue_contrast_unrel_log)
+
+plot_df_rel_minus_unrel_log_cue_contrast_by_seq <- plot_df_rel_seq_log_cue_only %>%
+  dplyr::left_join(
+    plot_df_unrel_seq_log_cue_only,
+    by = c(".draw", "seq_id", "mat_label")
+  ) %>%
+  dplyr::mutate(
+    sequence = factor(
+      paste("Sequence", seq_id),
+      levels = paste("Sequence", sort(unique(seq_id)))
+    ),
+    rel_minus_unrel_log_cue_contrast =
+      cue_contrast_rel_log - cue_contrast_unrel_log
+  )
+
+plot_summ_rel_minus_unrel_log_cue_contrast_by_seq <- plot_df_rel_minus_unrel_log_cue_contrast_by_seq %>%
+  dplyr::group_by(sequence, mat_label) %>%
+  dplyr::summarise(
+    med = median(rel_minus_unrel_log_cue_contrast),
+    lo = quantile(rel_minus_unrel_log_cue_contrast, growth_lo_p),
+    hi = quantile(rel_minus_unrel_log_cue_contrast, growth_hi_p),
+    .groups = "drop"
+  )
+```
+
+
+This is the contrast in cue response between reliable and unreliable on the log scale. 
+
+
+```{r growth_plot_rel_minus_unrel_log_cue_contrast_by_sequence_from_full_model, fig.width=7, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+growth_plot_halfeye_with_summary(
+  df_draws = plot_df_rel_minus_unrel_log_cue_contrast_by_seq,
+  df_summ = plot_summ_rel_minus_unrel_log_cue_contrast_by_seq,
+  x = "mat_label",
+  y = "rel_minus_unrel_log_cue_contrast",
+  x_label = axis_label_mat_env_full,
+  y_label = "Cue Response Divergence",
+  hline_value = 0,
+  single_fill = unname(contrast_color)
+) +
+  facet_wrap(~ sequence, nrow = 1) +
+  boxed_strip_theme(12)+
+  ylim(-2,2)
+```
+
+```{r growth_build_plot_df_rel_minus_unrel_log_cue_contrast_average_from_full_model, include=FALSE}
+# Average the Reliable - Unreliable cue-response contrast
+# across both sequence and maternal environment within each draw.
+
+plot_df_rel_minus_unrel_log_cue_contrast_avg <- plot_df_rel_minus_unrel_log_cue_contrast_by_seq %>%
+  dplyr::group_by(.draw) %>%
+  dplyr::summarise(
+    rel_minus_unrel_log_cue_contrast_avg =
+      mean(rel_minus_unrel_log_cue_contrast),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    contrast_label = factor(
+      "Reliable - Unreliable",
+      levels = "Reliable - Unreliable"
+    )
+  )
+
+plot_summ_rel_minus_unrel_log_cue_contrast_avg <- plot_df_rel_minus_unrel_log_cue_contrast_avg %>%
+  dplyr::group_by(contrast_label) %>%
+  dplyr::summarise(
+    med = median(rel_minus_unrel_log_cue_contrast_avg),
+    lo = quantile(rel_minus_unrel_log_cue_contrast_avg, growth_lo_p),
+    hi = quantile(rel_minus_unrel_log_cue_contrast_avg, growth_hi_p),
+    .groups = "drop"
+  )
+```
+
+
+
+```{r growth_plot_rel_minus_unrel_log_cue_contrast_average_from_full_model, fig.width=4.8, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+growth_plot_halfeye_with_summary(
+  df_draws = plot_df_rel_minus_unrel_log_cue_contrast_avg,
+  df_summ = plot_summ_rel_minus_unrel_log_cue_contrast_avg,
+  x = "contrast_label",
+  y = "rel_minus_unrel_log_cue_contrast_avg",
+  x_label = NULL,
+  y_label = "Average Reliable cue response - Unreliable cue response",
+  hline_value = 0,
+  single_fill = unname(contrast_color)
+)
+```
+
+now figure out exactly how much is below 0. The answer is 7.9%.
+```{r}
+plot_df_rel_minus_unrel_log_cue_contrast_avg %>%
+  dplyr::group_by(contrast_label) %>%
+  dplyr::summarise(
+    med = median(rel_minus_unrel_log_cue_contrast_avg),
+    lo = quantile(rel_minus_unrel_log_cue_contrast_avg, 0.079),
+    hi = quantile(rel_minus_unrel_log_cue_contrast_avg, growth_hi_p),
+    .groups = "drop"
+  )
+```
+
+
+## Fecundity data
+
+
+
+```{r fec_plot_anc_fec_by_matcue_intervals_from_mat_and_cue_only, fig.width=6, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+
+alpha_fix <- median(fec_draws_df$`alpha[1]`)
+
+mat_df <- fec_draws_df %>%
+  select(starts_with("mat_eff[1,")) %>%
+  setNames(1:4) %>%
+  as.matrix()
+
+beta_cue_anc <- fec_draws_df$`beta_cue[1]`
+
+plot_df <- tidyr::expand_grid(
+  .draw = seq_len(nrow(mat_df)),
+  mat_id = 1:4,
+  cue = c("No Light", "Blue Light")
+) %>%
+  mutate(
+    Ci = if_else(cue == "Blue Light", 1, -1),
+    eta = alpha_fix +
+      mat_df[cbind(.draw, mat_id)] +
+      beta_cue_anc[.draw] * Ci,
+    fec = exp(eta)
+  ) %>%
+  left_join(mat_key_fec, by = "mat_id") %>%
+  mutate(
+    mat = factor(mat, levels = c("AN", "NN", "AA", "NA"))
+  ) %>%
+  group_by(mat, cue) %>%
+  summarise(
+    med = median(fec),
+    lo = quantile(fec, fec_lo_p),
+    hi = quantile(fec, fec_hi_p),
+    .groups = "drop"
+  )
+
+ggplot(plot_df, aes(x = mat, y = med, fill = cue)) +
+  geom_col(
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  geom_errorbar(
+    aes(ymin = lo, ymax = hi),
+    position = position_dodge(width = 0.9),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  scale_fill_manual(
+    name = legend_label_light_cue,
+    values = fec_cue_plot_colors
+  ) +
+  labs(
+    x = axis_label_mat_env_full,
+    y = axis_label_fecundity
+  ) +
+  growth_base_plot_theme()
+```
+
+
+```{r plot_anc_growth_and_fec_by_matcue_two_panel, fig.width=10, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+library(patchwork)
+
+# Standardize key column names for plotting
+state_key_growth_plot <- state_key_growth
+if ("mat_label" %in% names(state_key_growth_plot) && !("mat" %in% names(state_key_growth_plot))) {
+  state_key_growth_plot <- state_key_growth_plot %>%
+    rename(mat = mat_label)
+}
+
+mat_key_fec_plot <- mat_key_fec
+if ("mat_label" %in% names(mat_key_fec_plot) && !("mat" %in% names(mat_key_fec_plot))) {
+  mat_key_fec_plot <- mat_key_fec_plot %>%
+    rename(mat = mat_label)
+}
+
+ 
+# Left panel: ancestral growth 
+alpha_fix_growth <- median(growth_draws_df$alpha_anc)
+
+state_df_growth <- growth_draws_df %>%
+  select(starts_with("state_anc[")) %>%
+  mutate(across(everything(), ~ exp(alpha_fix_growth + .)))
+
+df_summ_growth <- state_df_growth %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "state",
+    values_to = "grow"
+  ) %>%
+  mutate(
+    state_id = readr::parse_number(state)
+  ) %>%
+  left_join(state_key_growth_plot, by = "state_id") %>%
+  mutate(
+    mat = factor(mat, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  ) %>%
+  group_by(mat, cue) %>%
+  summarise(
+    med = median(grow),
+    lo = quantile(grow, growth_lo_p),
+    hi = quantile(grow, growth_hi_p),
+    .groups = "drop"
+  )
+
+p_growth <- ggplot(df_summ_growth, aes(x = mat, y = med, fill = cue)) +
+  geom_col(
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  geom_errorbar(
+    aes(ymin = lo, ymax = hi),
+    position = position_dodge(width = 0.9),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  scale_fill_manual(
+    name = legend_label_light_cue,
+    values = growth_cue_plot_colors
+  ) +
+  labs(
+    title = NULL,
+    x = axis_label_mat_env_full,
+    y = axis_label_growth
+  ) +
+  growth_base_plot_theme() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+ 
+# Right panel: ancestral fecundity
+
+alpha_fix_fec <- median(fec_draws_df$`alpha[1]`)
+
+mat_df_fec <- fec_draws_df %>%
+  select(starts_with("mat_eff[1,")) %>%
+  setNames(1:4) %>%
+  as.matrix()
+
+beta_cue_anc <- fec_draws_df$`beta_cue[1]`
+
+df_summ_fec <- tidyr::expand_grid(
+  .draw = seq_len(nrow(mat_df_fec)),
+  mat_id = 1:4,
+  cue = c("No Light", "Blue Light")
+) %>%
+  mutate(
+    Ci = if_else(cue == "Blue Light", 1, -1),
+    eta = alpha_fix_fec +
+      mat_df_fec[cbind(.draw, mat_id)] +
+      beta_cue_anc[.draw] * Ci,
+    fec = exp(eta)
+  ) %>%
+  left_join(mat_key_fec_plot, by = "mat_id") %>%
+  mutate(
+    mat = factor(mat, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  ) %>%
+  group_by(mat, cue) %>%
+  summarise(
+    med = median(fec),
+    lo = quantile(fec, fec_lo_p),
+    hi = quantile(fec, fec_hi_p),
+    .groups = "drop"
+  )
+
+p_fec <- ggplot(df_summ_fec, aes(x = mat, y = med, fill = cue)) +
+  geom_col(
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  geom_errorbar(
+    aes(ymin = lo, ymax = hi),
+    position = position_dodge(width = 0.9),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  scale_fill_manual(
+    name = legend_label_light_cue,
+    values = fec_cue_plot_colors
+  ) +
+  labs(NULL,
+    x = axis_label_mat_env_full,
+    y = axis_label_fecundity
+  ) +
+  fec_base_plot_theme() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+# Combine panels
+
+
+p_growth + p_fec + plot_layout(ncol = 2, guides = "collect") &
+  theme(legend.position = "right")
+```
+
+
+
+
+
+
+```{r fec_plot_all_fec_by_matcue_intervals_from_mat_and_cue_only, fig.width=9, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
+# Predicted fecundity for each maternal environment x cue combination
+# for all three treatments from the additive fecundity model.
+#
+# The treatment-specific linear predictor is:
+#   eta = alpha[t] + mat_eff[t, mat_id] + beta_cue[t] * Ci
+#
+# We fix each treatment intercept at its posterior median, then combine it
+# with posterior draws of the treatment-specific maternal and cue effects,
+# and transform back to the natural scale with exp().
+ 
+
+treatment_key_fec <- tibble::tibble(
+  treatment_id = 1:3,
+  treatment = factor(
+    c("Ancestral", "Reliable", "Unreliable"),
+    levels = c("Ancestral", "Reliable", "Unreliable")
+  )
+)
+
+mat_key_fec_plot <- mat_key_fec
+if ("mat_label" %in% names(mat_key_fec_plot) && !("mat" %in% names(mat_key_fec_plot))) {
+  mat_key_fec_plot <- mat_key_fec_plot %>%
+    rename(mat = mat_label)
+}
+
+alpha_fix <- c(
+  median(fec_draws_df$`alpha[1]`),
+  median(fec_draws_df$`alpha[2]`),
+  median(fec_draws_df$`alpha[3]`)
+)
+
+mat_df_1 <- fec_draws_df %>%
+  select(starts_with("mat_eff[1,")) %>%
+  setNames(1:4) %>%
+  as.matrix()
+
+mat_df_2 <- fec_draws_df %>%
+  select(starts_with("mat_eff[2,")) %>%
+  setNames(1:4) %>%
+  as.matrix()
+
+mat_df_3 <- fec_draws_df %>%
+  select(starts_with("mat_eff[3,")) %>%
+  setNames(1:4) %>%
+  as.matrix()
+
+beta_cue_1 <- fec_draws_df$`beta_cue[1]`
+beta_cue_2 <- fec_draws_df$`beta_cue[2]`
+beta_cue_3 <- fec_draws_df$`beta_cue[3]`
+
+plot_df <- tidyr::expand_grid(
+  .draw = seq_len(nrow(fec_draws_df)),
+  treatment_id = 1:3,
+  mat_id = 1:4,
+  cue = c("No Light", "Blue Light")
+) %>%
+  mutate(
+    Ci = if_else(cue == "Blue Light", 1, -1),
+    mat_val = case_when(
+      treatment_id == 1 ~ mat_df_1[cbind(.draw, mat_id)],
+      treatment_id == 2 ~ mat_df_2[cbind(.draw, mat_id)],
+      treatment_id == 3 ~ mat_df_3[cbind(.draw, mat_id)]
+    ),
+    beta_val = case_when(
+      treatment_id == 1 ~ beta_cue_1[.draw],
+      treatment_id == 2 ~ beta_cue_2[.draw],
+      treatment_id == 3 ~ beta_cue_3[.draw]
+    ),
+    eta = alpha_fix[treatment_id] + mat_val + beta_val * Ci,
+    fec = exp(eta)
+  ) %>%
+  left_join(mat_key_fec_plot, by = "mat_id") %>%
+  left_join(treatment_key_fec, by = "treatment_id") %>%
+  mutate(
+    mat = factor(mat, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  )
+
+plot_summ <- plot_df %>%
+  group_by(treatment, mat, cue) %>%
+  summarise(
+    med = median(fec),
+    lo = quantile(fec, fec_lo_p),
+    hi = quantile(fec, fec_hi_p),
+    .groups = "drop"
+  )
+
+ggplot(plot_summ, aes(x = mat, y = med, fill = cue)) +
+  geom_col(
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  geom_errorbar(
+    aes(ymin = lo, ymax = hi),
+    position = position_dodge(width = 0.9),
+    width = 0.2,
+    linewidth = 0.7
+  ) +
+  facet_wrap(~ treatment, nrow = 1) +
+  scale_fill_manual(
+    name = legend_label_light_cue,
+    values = fec_cue_plot_colors
+  ) +
+  labs(
+    x = axis_label_mat_env_full,
+    y = axis_label_fecundity
+  ) +
+  fec_base_plot_theme()
+```
+
+
+
+
+
+
+```{r fec_plot_difference_anc_vs_rel_unrel_matcue_only, echo=FALSE, message=FALSE, warning=FALSE}
+alpha_anc <- fec_draws_df$`alpha[1]` # ancestral intercept
+alpha_rel <- fec_draws_df$`alpha[2]` # reliable intercept
+alpha_unrel <- fec_draws_df$`alpha[3]` # unreliable intercept
+
+beta_anc <- fec_draws_df$`beta_cue[1]`
+beta_rel <- fec_draws_df$`beta_cue[2]`
+beta_unrel <- fec_draws_df$`beta_cue[3]`
+
+mat_key_fec_plot <- mat_key_fec
+if ("mat" %in% names(mat_key_fec_plot) && !("mat_label" %in% names(mat_key_fec_plot))) {
+  mat_key_fec_plot <- mat_key_fec_plot %>%
+    rename(mat_label = mat)
+}
+
+# calc anc fecundity from posterior intercept + maternal effect + cue effect
+mat_df_anc <- fec_draws_df %>%
+  select(starts_with("mat_eff[1,")) %>%
+  setNames(as.character(1:4))
+
+draws_anc <- tidyr::expand_grid(
+  .draw = seq_len(nrow(fec_draws_df)),
+  mat_id = 1:4,
+  Ci = c(-1L, 1L)
+) %>%
+  mutate(
+    cue = if_else(Ci == 1L, "Blue Light", "No Light"),
+    mat_1 = mat_df_anc[[1]][.draw],
+    mat_2 = mat_df_anc[[2]][.draw],
+    mat_3 = mat_df_anc[[3]][.draw],
+    mat_4 = mat_df_anc[[4]][.draw],
+    eta_anc = case_when(
+      mat_id == 1L ~ alpha_anc[.draw] + mat_1 + beta_anc[.draw] * Ci,
+      mat_id == 2L ~ alpha_anc[.draw] + mat_2 + beta_anc[.draw] * Ci,
+      mat_id == 3L ~ alpha_anc[.draw] + mat_3 + beta_anc[.draw] * Ci,
+      mat_id == 4L ~ alpha_anc[.draw] + mat_4 + beta_anc[.draw] * Ci
+    ),
+    fec_anc = exp(eta_anc)
+  ) %>%
+  left_join(mat_key_fec_plot, by = "mat_id") %>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  ) %>%
+  select(.draw, mat_id, Ci, mat_label, cue, fec_anc)
+
+# calc rel fecundity from posterior intercept + maternal effect + cue effect
+mat_df_rel <- fec_draws_df %>%
+  select(starts_with("mat_eff[2,")) %>%
+  setNames(as.character(1:4))
+
+draws_rel <- tidyr::expand_grid(
+  .draw = seq_len(nrow(fec_draws_df)),
+  mat_id = 1:4,
+  Ci = c(-1L, 1L)
+) %>%
+  mutate(
+    cue = if_else(Ci == 1L, "Blue Light", "No Light"),
+    mat_1 = mat_df_rel[[1]][.draw],
+    mat_2 = mat_df_rel[[2]][.draw],
+    mat_3 = mat_df_rel[[3]][.draw],
+    mat_4 = mat_df_rel[[4]][.draw],
+    eta_rel = case_when(
+      mat_id == 1L ~ alpha_rel[.draw] + mat_1 + beta_rel[.draw] * Ci,
+      mat_id == 2L ~ alpha_rel[.draw] + mat_2 + beta_rel[.draw] * Ci,
+      mat_id == 3L ~ alpha_rel[.draw] + mat_3 + beta_rel[.draw] * Ci,
+      mat_id == 4L ~ alpha_rel[.draw] + mat_4 + beta_rel[.draw] * Ci
+    ),
+    fec_rel = exp(eta_rel)
+  ) %>%
+  left_join(mat_key_fec_plot, by = "mat_id") %>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  ) %>%
+  select(.draw, mat_id, Ci, mat_label, cue, fec_rel)
+
+# calc unrel fecundity from posterior intercept + maternal effect + cue effect
+mat_df_unrel <- fec_draws_df %>%
+  select(starts_with("mat_eff[3,")) %>%
+  setNames(as.character(1:4))
+
+draws_unrel <- tidyr::expand_grid(
+  .draw = seq_len(nrow(fec_draws_df)),
+  mat_id = 1:4,
+  Ci = c(-1L, 1L)
+) %>%
+  mutate(
+    cue = if_else(Ci == 1L, "Blue Light", "No Light"),
+    mat_1 = mat_df_unrel[[1]][.draw],
+    mat_2 = mat_df_unrel[[2]][.draw],
+    mat_3 = mat_df_unrel[[3]][.draw],
+    mat_4 = mat_df_unrel[[4]][.draw],
+    eta_unrel = case_when(
+      mat_id == 1L ~ alpha_unrel[.draw] + mat_1 + beta_unrel[.draw] * Ci,
+      mat_id == 2L ~ alpha_unrel[.draw] + mat_2 + beta_unrel[.draw] * Ci,
+      mat_id == 3L ~ alpha_unrel[.draw] + mat_3 + beta_unrel[.draw] * Ci,
+      mat_id == 4L ~ alpha_unrel[.draw] + mat_4 + beta_unrel[.draw] * Ci
+    ),
+    fec_unrel = exp(eta_unrel)
+  ) %>%
+  left_join(mat_key_fec_plot, by = "mat_id") %>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    cue = factor(cue, levels = c("No Light", "Blue Light"))
+  ) %>%
+  select(.draw, mat_id, Ci, mat_label, cue, fec_unrel)
+
+# put the Anc and Rel into a single df and calc the difference in fecundity
+df_draws_rel <- draws_rel %>%
+  left_join(
+    draws_anc,
+    by = c(".draw", "mat_id", "Ci", "mat_label", "cue")
+  ) %>%
+  mutate(
+    diff_fit = fec_rel - fec_anc,
+    contrast = factor(
+      "Reliable - Ancestral",
+      levels = c("Reliable - Ancestral", "Unreliable - Ancestral")
+    )
+  )
+
+# put the Anc and Unrel into a single df and calc the difference in fecundity
+df_draws_unrel <- draws_unrel %>%
+  left_join(
+    draws_anc,
+    by = c(".draw", "mat_id", "Ci", "mat_label", "cue")
+  ) %>%
+  mutate(
+    diff_fit = fec_unrel - fec_anc,
+    contrast = factor(
+      "Unreliable - Ancestral",
+      levels = c("Reliable - Ancestral", "Unreliable - Ancestral")
+    )
+  )
+
+# combine Rel and Unrel dfs
+df_draws_both <- bind_rows(df_draws_rel, df_draws_unrel)
+
+# summarise median and quantiles
+df_summ_both <- df_draws_both %>%
+  group_by(contrast, mat_label, cue) %>%
+  summarise(
+    med = median(diff_fit),
+    lo = quantile(diff_fit, fec_lo_p),
+    hi = quantile(diff_fit, fec_hi_p),
+    .groups = "drop"
+  )
+
+# display plot
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws_both,
+  df_summ = df_summ_both,
+  x = "mat_label",
+  y = "diff_fit",
+  fill = "cue",
+  group = "cue",
+  x_label = axis_label_mat_env_full,
+  y_label = "Fecundity Divergence",
+  show_legend = TRUE,
+  dodge_width = 0.7
+) +
+  facet_wrap(~ contrast, nrow = 1) +
+  fill_legend_no_point() +
+  boxed_strip_theme(12) +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10)
+  )
+```
+
+
+```{r fec_plot_rel_minus_unrel_mat_only, echo=FALSE, message=FALSE, warning=FALSE}
+alpha_fix_rel <- median(fec_draws_df$`alpha[2]`) # fixed reliable intercept
+alpha_fix_unrel <- median(fec_draws_df$`alpha[3]`) # fixed unreliable intercept
+
+mat_key_fec_plot <- mat_key_fec
+if ("mat" %in% names(mat_key_fec_plot) && !("mat_label" %in% names(mat_key_fec_plot))) {
+  mat_key_fec_plot <- mat_key_fec_plot %>%
+    rename(mat_label = mat)
+}
+
+# reliable maternal effects
+mat_df_rel <- fec_draws_df %>%
+  select(starts_with("mat_eff[2,")) %>%
+  setNames(as.character(1:4)) %>%
+  as.matrix()
+
+# unreliable maternal effects
+mat_df_unrel <- fec_draws_df %>%
+  select(starts_with("mat_eff[3,")) %>%
+  setNames(as.character(1:4)) %>%
+  as.matrix()
+
+df_mat_only <- tidyr::expand_grid(
+  .draw = seq_len(nrow(fec_draws_df)),
+  mat_id = 1:4
+) %>%
+  mutate(
+    diff_rel_minus_unrel =
+      exp(alpha_fix_rel + mat_df_rel[cbind(.draw, mat_id)]) -
+      exp(alpha_fix_unrel + mat_df_unrel[cbind(.draw, mat_id)])
+  ) %>%
+  left_join(mat_key_fec_plot, by = "mat_id") %>%
+  mutate(
+    mat_label = factor(mat_label, levels = plot_mat_levels),
+    panel = factor("Reliable - Unreliable", levels = "Reliable - Unreliable")
+  )
+
+df_mat_summ <- df_mat_only %>%
+  group_by(panel, mat_label) %>%
+  summarise(
+    med = median(diff_rel_minus_unrel),
+    lo = quantile(diff_rel_minus_unrel, fec_lo_p),
+    hi = quantile(diff_rel_minus_unrel, fec_hi_p),
+    .groups = "drop"
+  )
+
+growth_plot_halfeye_with_summary(
+  df_draws = df_mat_only,
+  df_summ = df_mat_summ,
+  x = "mat_label",
+  y = "diff_rel_minus_unrel",
+  x_label = axis_label_mat_env_full,
+  y_label = "Light-Plasticity Fecundity Differentiation"
+) +
+  coord_cartesian(ylim = c(-3, 3)) +
+  facet_wrap(~ panel, nrow = 1) +
+  boxed_strip_theme(12)
+```
+
+
+```{r fec_plot_rel_minus_unrel_cue_only, echo=FALSE, message=FALSE, warning=FALSE}
+alpha_fix_rel <- median(fec_draws_df$`alpha[2]`) # fixed reliable intercept
+alpha_fix_unrel <- median(fec_draws_df$`alpha[3]`) # fixed unreliable intercept
+
+beta_rel <- fec_draws_df$`beta_cue[2]`
+beta_unrel <- fec_draws_df$`beta_cue[3]`
+
+df_cue_only <- tibble(
+  .draw = seq_len(nrow(fec_draws_df))
+) %>%
+  mutate(
+    diff_rel_minus_unrel =
+      exp(alpha_fix_rel + beta_rel) -
+      exp(alpha_fix_unrel + beta_unrel),
+    panel = factor("Reliable - Unreliable", levels = "Reliable - Unreliable"),
+    x_dummy = factor("", levels = "")
+  )
+
+df_cue_summ <- df_cue_only %>%
+  group_by(panel, x_dummy) %>%
+  summarise(
+    med = median(diff_rel_minus_unrel),
+    lo = quantile(diff_rel_minus_unrel, fec_lo_p),
+    hi = quantile(diff_rel_minus_unrel, fec_hi_p),
+    .groups = "drop"
+  )
+
+growth_plot_halfeye_with_summary(
+  df_draws = df_cue_only,
+  df_summ = df_cue_summ,
+  x = "x_dummy",
+  y = "diff_rel_minus_unrel",
+  x_label = NULL,
+  y_label = "Light-Plasticity Fecundity Differentiation",
+  remove_x_text = TRUE
+) +
+  facet_wrap(~ panel, nrow = 1) +
+  boxed_strip_theme(12)+labs(x="Experimental Evolution Contrast")
+```
+
+
+```{r fec_plot_difference_anc_vs_rel_unrel_intercept_only, echo=FALSE, message=FALSE, warning=FALSE}
+alpha_anc <- fec_draws_df$`alpha[1]` # ancestral intercept
+alpha_rel <- fec_draws_df$`alpha[2]` # reliable intercept
+alpha_unrel <- fec_draws_df$`alpha[3]` # unreliable intercept
+
+# calc change in fecundity due to intercept differences only
+df_draws_rel <- tibble(
+  .draw = seq_len(nrow(fec_draws_df)),
+  diff_fit = exp(alpha_rel) - exp(alpha_anc),
+  contrast = factor(
+    "Reliable - Ancestral",
+    levels = c("Reliable - Ancestral", "Unreliable - Ancestral")
+  ),
+  x_dummy = factor("", levels = "")
+)
+
+df_draws_unrel <- tibble(
+  .draw = seq_len(nrow(fec_draws_df)),
+  diff_fit = exp(alpha_unrel) - exp(alpha_anc),
+  contrast = factor(
+    "Unreliable - Ancestral",
+    levels = c("Reliable - Ancestral", "Unreliable - Ancestral")
+  ),
+  x_dummy = factor("", levels = "")
+)
+
+# combine Rel and Unrel dfs
+df_draws_both <- bind_rows(df_draws_rel, df_draws_unrel)
+
+# summarise median and quantiles
+df_summ_both <- df_draws_both %>%
+  group_by(contrast, x_dummy) %>%
+  summarise(
+    med = median(diff_fit),
+    lo = quantile(diff_fit, fec_lo_p),
+    hi = quantile(diff_fit, fec_hi_p),
+    .groups = "drop"
+  )
+
+# display plot
+growth_plot_halfeye_with_summary(
+  df_draws = df_draws_both,
+  df_summ = df_summ_both,
+  x = "x_dummy",
+  y = "diff_fit",
+  x_label = NULL,
+  y_label = "Fecundity Divergence",
+  remove_x_text = TRUE
+) +
+  labs(x = NULL) +
+  coord_cartesian(ylim = c(-4,4)) + 
+  facet_wrap(~ contrast, nrow = 1) +
+  boxed_strip_theme(12) +
+  theme(
+    legend.position = "none"
+  )+ labs(x = "Experimental Evolution Contrast")
+```
+
+
+```{r fec_plot_fecundity_variance_pairs_shared_pop, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=8}
+xlim_common <- c(0, 1.2)
+ylim_common <- c(0, 1.2)
+
+draws_var <- fec_draws_df %>%
+  transmute(
+    `Block SD` = sigma_block,
+    `Replicate Population SD` = sigma_pop,
+    `Likelihood Residual SD` = 1 /phi
+  )
+
+draw_variance_matrix <- function(df_plot) {
+  vars <- names(df_plot)
+  k <- length(vars)
+
+  grid::grid.newpage()
+  grid::pushViewport(grid::viewport(layout = grid::grid.layout(k, k)))
+
+  for (i in seq_len(k)) {
+    for (j in seq_len(k)) {
+      grid::pushViewport(
+        grid::viewport(layout.pos.row = i, layout.pos.col = j)
+      )
+
+      xvar <- vars[j]
+      yvar <- vars[i]
+
+      if (i == j) {
+        p <- ggplot(df_plot, aes(x = .data[[xvar]])) +
+          geom_density(fill = "steelblue", alpha = 0.7, color = "navy") +
+          coord_cartesian(xlim = xlim_common) +
+          labs(x = xvar, y = "Density") +scale_x_continuous(n.breaks = 3)+
+scale_y_continuous(n.breaks = 3)+
+          theme_bw(base_size = 12) +
+          theme(
+            axis.title.x = element_text(size = 12),
+  axis.title.y = element_text(size = 12),
+  axis.text.x  = element_text(size = 8),
+  axis.text.y  = element_text(size = 8)
+          )  
+      } else {
+        p <- ggplot(df_plot, aes(x = .data[[xvar]], y = .data[[yvar]])) +
+          geom_point(size = 0.4, alpha = 0.5, color = "navy") +
+          coord_cartesian(xlim = xlim_common, ylim = ylim_common) +
+          labs(x = xvar, y = yvar) +scale_x_continuous(n.breaks = 3)+
+scale_y_continuous(n.breaks = 3)+
+          theme_bw(base_size = 12) +
+          theme(
+            axis.title.x = element_text(size = 12),
+  axis.title.y = element_text(size = 12),
+  axis.text.x  = element_text(size = 8),
+  axis.text.y  = element_text(size = 8)
+          )    }
+
+      print(p, vp = grid::viewport())
+      grid::popViewport()
+    }
+  }
+
+  grid::popViewport()
+}
+
+draw_variance_matrix(draws_var)
+```
