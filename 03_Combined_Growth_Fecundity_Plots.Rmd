@@ -1086,7 +1086,7 @@ growth_plot_halfeye_with_summary(
   x = "x",
   y = "diff_fit",
   x_label = NULL,
-  y_label = "Divergence in Fitness",
+  y_label = "Adaptive Divergence",
   hline_value = 0,
   single_fill = unname(contrast_color)
 ) +
@@ -2572,7 +2572,8 @@ growth_plot_halfeye_with_summary(
     legend.position = "right",
     legend.title = element_text(size = 11),
     legend.text = element_text(size = 10)
-  )
+  )+
+  ylim(-6,6)
 ```
 
 
