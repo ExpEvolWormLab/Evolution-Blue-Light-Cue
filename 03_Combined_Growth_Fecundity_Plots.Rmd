@@ -891,29 +891,25 @@ df_draws_mat <- cue_effect_rel %>%
   ) %>%
   mutate(
     cue_effect_diff = cue_effect_rel - cue_effect_unrel,
-    plot_label = as.character(mat_label)
+    plot_label = as.character(mat_label),
+    panel = factor("Reliable - Unreliable", levels = "Reliable - Unreliable")
   )
 
-# Overall average cue-effect difference.
-# This averages the four maternal-environment-specific differences within
-# each posterior draw, so uncertainty is preserved across posterior draws.
+# Overall average cue-effect difference, averaged within posterior draw.
 df_draws_overall <- df_draws_mat %>%
   group_by(.draw) %>%
   summarise(
     cue_effect_rel = mean(cue_effect_rel),
     cue_effect_unrel = mean(cue_effect_unrel),
     cue_effect_diff = mean(cue_effect_diff),
-    plot_label = "Overall",
     .groups = "drop"
+  ) %>%
+  mutate(
+    plot_label = "Overall",
+    panel = factor("Reliable - Unreliable", levels = "Reliable - Unreliable")
   )
 
-# Combine the four maternal-environment distributions with the overall average.
-df_draws <- bind_rows(
-  df_draws_mat,
-  df_draws_overall
-)
-
-# Use numeric x positions so the Overall distribution can be spatially separated.
+# Numeric x positions so Overall can be spatially separated.
 plot_x_positions <- c(
   "AN" = 1,
   "NN" = 2,
@@ -922,14 +918,17 @@ plot_x_positions <- c(
   "Overall" = 5.75
 )
 
-df_draws <- df_draws %>%
+df_draws <- bind_rows(
+  df_draws_mat,
+  df_draws_overall
+) %>%
   mutate(
     x_pos = unname(plot_x_positions[plot_label])
   )
 
-# Summarize each posterior distribution using the median and central interval.
+# Summarize each posterior distribution.
 df_summ <- df_draws %>%
-  group_by(plot_label, x_pos) %>%
+  group_by(panel, plot_label, x_pos) %>%
   summarise(
     med = median(cue_effect_diff),
     lo = quantile(cue_effect_diff, growth_lo_p),
@@ -937,7 +936,6 @@ df_summ <- df_draws %>%
     .groups = "drop"
   )
 
-# Plot the four maternal-environment contrasts plus the overall average.
 growth_plot_halfeye_with_summary(
   df_draws = df_draws,
   df_summ = df_summ,
@@ -957,8 +955,11 @@ growth_plot_halfeye_with_summary(
     breaks = unname(plot_x_positions),
     labels = names(plot_x_positions),
     limits = c(0.5, 6.25)
-  )
+  ) +
+  facet_wrap(~ panel, nrow = 1) +
+  boxed_strip_theme(12)
 ```
+
 
 
 Here the contrasts in mean log fitness are calculated on log scale (because it is geo mean of R0). We then plot fixed-reference changes on the R0 scale so they can be seen in terms of number of offspring. We do this by taking exp( Anc  + 1/2 diff in log fit due to evo treat)-exp( Anc  - 1/2 diff in log fit due to evo treat)
@@ -2579,7 +2580,6 @@ growth_plot_halfeye_with_summary(
 ```
 
 
-
 ```{r fec_plot_rel_minus_unrel_mat_only, echo=FALSE, message=FALSE, warning=FALSE}
 alpha_fix_rel <- median(fec_draws_df$`alpha[2]`) # fixed reliable intercept
 alpha_fix_unrel <- median(fec_draws_df$`alpha[3]`) # fixed unreliable intercept
@@ -2615,7 +2615,8 @@ df_mat_only <- tidyr::expand_grid(
   left_join(mat_key_fec_plot, by = "mat_id") %>%
   mutate(
     mat_label = factor(mat_label, levels = plot_mat_levels),
-    plot_label = as.character(mat_label)
+    plot_label = as.character(mat_label),
+    panel = factor("Reliable - Unreliable", levels = "Reliable - Unreliable")
   )
 
 # Overall average across maternal environments, computed within posterior draw
@@ -2623,11 +2624,14 @@ df_mat_overall <- df_mat_only %>%
   group_by(.draw) %>%
   summarise(
     diff_rel_minus_unrel = mean(diff_rel_minus_unrel),
-    plot_label = "Overall",
     .groups = "drop"
+  ) %>%
+  mutate(
+    plot_label = "Overall",
+    panel = factor("Reliable - Unreliable", levels = "Reliable - Unreliable")
   )
 
-# Numeric x positions to create a gap before Overall
+# Numeric x positions to create a visual gap before Overall
 plot_x_positions <- c(
   "AN" = 1,
   "NN" = 2,
@@ -2648,7 +2652,7 @@ df_overall_plot <- df_mat_overall %>%
 
 # Summaries for plotting
 df_env_summ <- df_env_plot %>%
-  group_by(plot_label, x_pos) %>%
+  group_by(panel, plot_label, x_pos) %>%
   summarise(
     med = median(diff_rel_minus_unrel),
     lo = quantile(diff_rel_minus_unrel, fec_lo_p),
@@ -2657,7 +2661,7 @@ df_env_summ <- df_env_plot %>%
   )
 
 df_overall_summ <- df_overall_plot %>%
-  group_by(plot_label, x_pos) %>%
+  group_by(panel, plot_label, x_pos) %>%
   summarise(
     med = median(diff_rel_minus_unrel),
     lo = quantile(diff_rel_minus_unrel, fec_lo_p),
@@ -2737,8 +2741,11 @@ ggplot() +
     x = axis_label_mat_env_full,
     y = "Light-Plasticity Fecundity Differentiation"
   ) +
-  growth_base_plot_theme()
+  growth_base_plot_theme() +
+  facet_wrap(~ panel, nrow = 1) +
+  boxed_strip_theme(12)
 ```
+
 
 
 
