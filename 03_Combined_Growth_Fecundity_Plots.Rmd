@@ -1235,6 +1235,8 @@ growth_plot_halfeye_with_summary(
 
  
 Here we go to the natural scale and then take the contrast between cue and no cue R0 averaged across mat ox states
+
+
  
 ```{r growth_plot_overall_cue_contrast_averaged_across_mat, fig.width=9, fig.height=4.5, echo=FALSE, message=FALSE, warning=FALSE}
 
@@ -2577,6 +2579,7 @@ growth_plot_halfeye_with_summary(
 ```
 
 
+
 ```{r fec_plot_rel_minus_unrel_mat_only, echo=FALSE, message=FALSE, warning=FALSE}
 alpha_fix_rel <- median(fec_draws_df$`alpha[2]`) # fixed reliable intercept
 alpha_fix_unrel <- median(fec_draws_df$`alpha[3]`) # fixed unreliable intercept
@@ -2599,6 +2602,7 @@ mat_df_unrel <- fec_draws_df %>%
   setNames(as.character(1:4)) %>%
   as.matrix()
 
+# Maternal-environment-specific Reliable - Unreliable fecundity differences
 df_mat_only <- tidyr::expand_grid(
   .draw = seq_len(nrow(fec_draws_df)),
   mat_id = 1:4
@@ -2611,52 +2615,40 @@ df_mat_only <- tidyr::expand_grid(
   left_join(mat_key_fec_plot, by = "mat_id") %>%
   mutate(
     mat_label = factor(mat_label, levels = plot_mat_levels),
-    panel = factor("Reliable - Unreliable", levels = "Reliable - Unreliable")
+    plot_label = as.character(mat_label)
   )
 
-df_mat_summ <- df_mat_only %>%
-  group_by(panel, mat_label) %>%
+# Overall average across maternal environments, computed within posterior draw
+df_mat_overall <- df_mat_only %>%
+  group_by(.draw) %>%
   summarise(
-    med = median(diff_rel_minus_unrel),
-    lo = quantile(diff_rel_minus_unrel, fec_lo_p),
-    hi = quantile(diff_rel_minus_unrel, fec_hi_p),
+    diff_rel_minus_unrel = mean(diff_rel_minus_unrel),
+    plot_label = "Overall",
     .groups = "drop"
   )
 
-growth_plot_halfeye_with_summary(
-  df_draws = df_mat_only,
-  df_summ = df_mat_summ,
-  x = "mat_label",
-  y = "diff_rel_minus_unrel",
-  x_label = axis_label_mat_env_full,
-  y_label = "Light-Plasticity Fecundity Differentiation"
-) +
-  coord_cartesian(ylim = c(-3, 3)) +
-  facet_wrap(~ panel, nrow = 1) +
-  boxed_strip_theme(12)
-```
+# Numeric x positions to create a gap before Overall
+plot_x_positions <- c(
+  "AN" = 1,
+  "NN" = 2,
+  "AA" = 3,
+  "NA" = 4,
+  "Overall" = 5.75
+)
 
-
-```{r fec_plot_rel_minus_unrel_cue_only, echo=FALSE, message=FALSE, warning=FALSE}
-alpha_fix_rel <- median(fec_draws_df$`alpha[2]`) # fixed reliable intercept
-alpha_fix_unrel <- median(fec_draws_df$`alpha[3]`) # fixed unreliable intercept
-
-beta_rel <- fec_draws_df$`beta_cue[2]`
-beta_unrel <- fec_draws_df$`beta_cue[3]`
-
-df_cue_only <- tibble(
-  .draw = seq_len(nrow(fec_draws_df))
-) %>%
+df_env_plot <- df_mat_only %>%
   mutate(
-    diff_rel_minus_unrel =
-      exp(alpha_fix_rel + beta_rel) -
-      exp(alpha_fix_unrel + beta_unrel),
-    panel = factor("Reliable - Unreliable", levels = "Reliable - Unreliable"),
-    x_dummy = factor("", levels = "")
+    x_pos = unname(plot_x_positions[plot_label])
   )
 
-df_cue_summ <- df_cue_only %>%
-  group_by(panel, x_dummy) %>%
+df_overall_plot <- df_mat_overall %>%
+  mutate(
+    x_pos = unname(plot_x_positions[plot_label])
+  )
+
+# Summaries for plotting
+df_env_summ <- df_env_plot %>%
+  group_by(plot_label, x_pos) %>%
   summarise(
     med = median(diff_rel_minus_unrel),
     lo = quantile(diff_rel_minus_unrel, fec_lo_p),
@@ -2664,18 +2656,90 @@ df_cue_summ <- df_cue_only %>%
     .groups = "drop"
   )
 
-growth_plot_halfeye_with_summary(
-  df_draws = df_cue_only,
-  df_summ = df_cue_summ,
-  x = "x_dummy",
-  y = "diff_rel_minus_unrel",
-  x_label = NULL,
-  y_label = "Light-Plasticity Fecundity Differentiation",
-  remove_x_text = TRUE
-) +
-  facet_wrap(~ panel, nrow = 1) +
-  boxed_strip_theme(12)+labs(x="Experimental Evolution Contrast")
+df_overall_summ <- df_overall_plot %>%
+  group_by(plot_label, x_pos) %>%
+  summarise(
+    med = median(diff_rel_minus_unrel),
+    lo = quantile(diff_rel_minus_unrel, fec_lo_p),
+    hi = quantile(diff_rel_minus_unrel, fec_hi_p),
+    .groups = "drop"
+  )
+
+ggplot() +
+  geom_hline(yintercept = 0, linewidth = 0.7) +
+
+  # oxygen-environment-specific distributions
+  ggdist::stat_halfeye(
+    data = df_env_plot,
+    aes(x = x_pos, y = diff_rel_minus_unrel),
+    side = "right",
+    justification = -0.15,
+    width = 0.72,
+    point_interval = NULL,
+    alpha = 0.8,
+    fill = contrast_color,
+    slab_color = NA
+  ) +
+
+  # overall distribution, drawn separately so it can have its own width
+  ggdist::stat_halfeye(
+    data = df_overall_plot,
+    aes(x = x_pos, y = diff_rel_minus_unrel),
+    side = "right",
+    justification = -0.15,
+    width = 0.42,
+    point_interval = NULL,
+    alpha = 0.8,
+    fill = contrast_color,
+    slab_color = NA
+  ) +
+
+  geom_errorbar(
+    data = df_env_summ,
+    aes(x = x_pos, y = med, ymin = lo, ymax = hi),
+    width = 0,
+    linewidth = 0.7,
+    color = "black"
+  ) +
+  geom_point(
+    data = df_env_summ,
+    aes(x = x_pos, y = med),
+    size = 2.3,
+    color = "black"
+  ) +
+
+  geom_errorbar(
+    data = df_overall_summ,
+    aes(x = x_pos, y = med, ymin = lo, ymax = hi),
+    width = 0,
+    linewidth = 0.7,
+    color = "black"
+  ) +
+  geom_point(
+    data = df_overall_summ,
+    aes(x = x_pos, y = med),
+    size = 2.3,
+    color = "black"
+  ) +
+
+  geom_vline(
+    xintercept = 4.875,
+    linetype = "dotted",
+    linewidth = 0.5
+  ) +
+  scale_x_continuous(
+    breaks = unname(plot_x_positions),
+    labels = names(plot_x_positions),
+    limits = c(0.5, 6.25)
+  ) +
+  coord_cartesian(ylim = c(-3, 3)) +
+  labs(
+    x = axis_label_mat_env_full,
+    y = "Light-Plasticity Fecundity Differentiation"
+  ) +
+  growth_base_plot_theme()
 ```
+
 
 
 ```{r fec_plot_difference_anc_vs_rel_unrel_intercept_only, echo=FALSE, message=FALSE, warning=FALSE}
